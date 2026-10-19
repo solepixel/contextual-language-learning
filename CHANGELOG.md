@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.1 (2026-10-19)
+- The script lesson now introduces one new letter per reply instead of three. Letters that are due for review come back alongside it as just their sound, so the footer stays short and the repeats are what you see most.
+
 ## 0.2.0 (2026-10-19)
 - Eight more languages ship as curated packs, each mirroring the Spanish concept list so every pack covers the same ground: French, German, Italian, Portuguese, Japanese, Korean, Mandarin and Russian. The non-Latin packs carry a reading on every entry and their own sound and structure notes. Nobody generates these nine.
 - `/contextlang export [path]` writes the generated pack for your language as a source file in the shape of the shipped packs, ready to review and contribute.

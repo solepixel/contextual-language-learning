@@ -226,7 +226,28 @@ describe('level and prompt text', () => {
     expect(computeLevel(p, pack, S).phase).toBe('script')
     const plan = makePlan(p, pack, S, 0)
     expect(plan.footer?.kind).toBe('script')
-    expect(plan.footer?.key.split('|').length).toBe(3)
+    expect(plan.footer?.key.split('|').length).toBe(1)
+  })
+
+  test('the script lesson introduces one new letter at a time, with reviews in short form', async () => {
+    const { pack } = basePack(resolveLanguage('Russian'))
+    const p = newProgress('ru', 0)
+    const seenNew: string[] = []
+    for (let i = 0; i < 12; i++) {
+      const now = i * HOUR * 24
+      const plan = makePlan(p, pack, S, now)
+      expect(plan.footer?.kind).toBe('script')
+      const keys = plan.footer!.key.split('|')
+      const fresh = keys.filter(k => !seenNew.includes(k))
+      expect(fresh.length).toBeLessThanOrEqual(1)
+      expect(keys.length).toBeLessThanOrEqual(3)
+      // Only the new letter carries its example word; a letter back for review is just the sound.
+      expect((plan.footer!.text.match(/", as in /g) ?? []).length).toBe(fresh.length)
+      seenNew.push(...fresh)
+      creditAnswer(p, plan, 'ok\n\nContextLang: ' + plan.footer!.text, S, now)
+    }
+    expect(seenNew.length).toBeGreaterThanOrEqual(10)
+    expect(seenNew[0]).toBe('А а')
   })
 
   test('the lesson and the turn note say what the model must do', async () => {

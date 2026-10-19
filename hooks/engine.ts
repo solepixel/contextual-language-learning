@@ -449,9 +449,18 @@ function pickFooter(p: Progress, pack: Pack, s: Settings, info: LevelInfo, turn:
       const st = p.script[a.symbol]
       return !st || (st.seen < tune.scriptReps && isDue(st, turn, now))
     })
-    const batch = due.slice(0, info.phase === 'script' ? 3 : 1)
+    // One new letter per reply, always: three strangers at once is too much for a beginner.
+    // Letters coming back for review ride along in short form, so the footer stays brief and
+    // the repeats are what make a longer footer feel familiar rather than heavy.
+    const fresh = due.filter(a => !p.script[a.symbol]).slice(0, 1)
+    const review = due.filter(a => p.script[a.symbol]).slice(0, info.phase === 'script' ? 2 : 1)
+    const batch = (info.phase === 'script' ? [...review, ...fresh] : [...review, ...fresh].slice(0, 1))
     if (batch.length > 0) {
-      const text = batch.map(a => `${styleTarget(a.symbol, s)} is "${a.sound}"${a.example ? `, as in ${styleExample(a.example, s)}` : ''}`).join('; ')
+      const describe = (a: AlphabetItem) => {
+        const full = !p.script[a.symbol] && a.example
+        return `${styleTarget(a.symbol, s)} is "${a.sound}"${full ? `, as in ${styleExample(a.example!, s)}` : ''}`
+      }
+      const text = batch.map(describe).join('; ')
       return { kind: 'script', key: batch.map(a => a.symbol).join('|'), text: `${pack.name} script: ${text}.` }
     }
   }
