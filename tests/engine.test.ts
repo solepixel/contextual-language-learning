@@ -11,6 +11,9 @@ import {
   lessonSection,
   makePlan,
   matchesForm,
+  metScriptLetters,
+  readableWith,
+  scriptLetters,
   newProgress,
   parseBirthDate,
   readSettings,
@@ -231,6 +234,40 @@ describe('level and prompt text', () => {
     expect(plan.footer?.key.split('|').length).toBe(1)
   })
 
+  test('in the script phase a word only arrives once its letters have been taught', async () => {
+    const { pack } = basePack(resolveLanguage('Russian'))
+    const p = newProgress('ru', 0)
+    const wordsSeen: string[] = []
+    for (let i = 0; i < 20; i++) {
+      const now = i * HOUR * 24
+      const plan = makePlan(p, pack, S, now)
+      const met = metScriptLetters(p, pack)!
+      for (const w of plan.annotate) {
+        expect(readableWith(w.t, met, 'cyrillic')).toBe(true)
+        if (!wordsSeen.includes(w.t)) wordsSeen.push(w.t)
+      }
+      creditAnswer(p, plan, plan.annotate.map(w => `${w.n} [${w.t}]`).join(' ') + '\n\nContextLang: ' + plan.footer!.text, S, now)
+    }
+    // The very first reply has no letters yet, so no word; "да" needs only А and Д and comes early.
+    expect(wordsSeen.length).toBeGreaterThan(0)
+    expect(wordsSeen).toContain('да')
+    expect(wordsSeen).not.toContain('привет')
+    const first = makePlan(newProgress('ru', 0), pack, S, 0)
+    expect(first.annotate.length).toBe(0)
+  })
+
+  test('letters decompose the way the script lesson teaches them', async () => {
+    expect(scriptLetters('강', 'hangul')).toEqual(['ㄱ', 'ㅏ', 'ㅇ'])
+    expect(scriptLetters('왜', 'hangul')).toEqual(['ㅇ', 'ㅗ', 'ㅏ', 'ㅣ'])
+    expect(scriptLetters('が', 'kana')).toEqual(['か'])
+    expect(scriptLetters('ょ', 'kana')).toEqual(['よ'])
+    expect(readableWith('나', new Set(['ㄴ', 'ㅏ']), 'hangul')).toBe(true)
+    expect(readableWith('강', new Set(['ㄱ', 'ㅏ']), 'hangul')).toBe(false)
+    expect(readableWith('ありがとう', new Set([...'ありかとう']), 'kana')).toBe(true)
+    expect(readableWith('今日', new Set([...'きょう']), 'kana')).toBe(false)
+    expect(readableWith('да!', new Set(['д', 'а', 'Д', 'А']), 'cyrillic')).toBe(true)
+  })
+
   test('the script lesson introduces one new letter at a time, with reviews in short form', async () => {
     const { pack } = basePack(resolveLanguage('Russian'))
     const p = newProgress('ru', 0)
@@ -260,6 +297,8 @@ describe('level and prompt text', () => {
     expect(lessonSection(es, newProgress('es', 0), { ...S, marker: 'brackets' }, computeLevel(newProgress('es', 0), es, S)).replace(/\s+/g, ' ')).toContain('questions [preguntas]')
     expect(lesson).toContain('mcp__contextlang__report')
     expect(lesson).toContain('Only in the final reply')
+    expect(lesson).toContain('Never in anything written for the person to send or publish as their own')
+    expect(lesson).toContain('drafted email, Slack or chat message, GitHub comment')
     const note = turnNote(plan, es, S, ['hola'], ['ahora'])
     expect(note).toContain('[ContextLang turn plan]')
     expect(note).toContain('yes → **[sí]**')

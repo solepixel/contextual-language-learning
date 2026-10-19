@@ -402,6 +402,55 @@ export function freshCandidates(pack: Pack, p: Progress, level: number): WordEnt
   return out
 }
 
+// ---------------------------------------------------------------- readable words in the script phase
+
+const HANGUL_L = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ']
+const HANGUL_V = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅘ', 'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ', 'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ', 'ㅢ', 'ㅣ']
+const HANGUL_T = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ']
+/** Compound jamo as the basic letters the script lesson teaches. */
+const HANGUL_COMPOUND: Record<string, string> = {
+  ㄲ: 'ㄱㄱ', ㄸ: 'ㄷㄷ', ㅃ: 'ㅂㅂ', ㅆ: 'ㅅㅅ', ㅉ: 'ㅈㅈ', ㄳ: 'ㄱㅅ', ㄵ: 'ㄴㅈ', ㄶ: 'ㄴㅎ', ㄺ: 'ㄹㄱ', ㄻ: 'ㄹㅁ', ㄼ: 'ㄹㅂ', ㄽ: 'ㄹㅅ', ㄾ: 'ㄹㅌ', ㄿ: 'ㄹㅍ', ㅀ: 'ㄹㅎ', ㅄ: 'ㅂㅅ',
+  ㅐ: 'ㅏㅣ', ㅒ: 'ㅑㅣ', ㅔ: 'ㅓㅣ', ㅖ: 'ㅕㅣ', ㅘ: 'ㅗㅏ', ㅙ: 'ㅗㅏㅣ', ㅚ: 'ㅗㅣ', ㅝ: 'ㅜㅓ', ㅞ: 'ㅜㅓㅣ', ㅟ: 'ㅜㅣ', ㅢ: 'ㅡㅣ',
+}
+const SMALL_KANA: Record<string, string> = { ぁ: 'あ', ぃ: 'い', ぅ: 'う', ぇ: 'え', ぉ: 'お', ゃ: 'や', ゅ: 'ゆ', ょ: 'よ', っ: 'つ', ゎ: 'わ', ァ: 'ア', ィ: 'イ', ゥ: 'ウ', ェ: 'エ', ォ: 'オ', ャ: 'ヤ', ュ: 'ユ', ョ: 'ヨ', ッ: 'ツ', ヮ: 'ワ' }
+
+/** The basic letters a character is made of, in the form the script lesson teaches them: a hangul syllable as its jamo, a voiced or small kana as its base. */
+export function scriptLetters(ch: string, script: ScriptKind): string[] {
+  if (script === 'hangul') {
+    const code = ch.codePointAt(0) ?? 0
+    const parts = code >= 0xac00 && code <= 0xd7a3 ? [HANGUL_L[Math.floor((code - 0xac00) / 588)], HANGUL_V[Math.floor(((code - 0xac00) % 588) / 28)], HANGUL_T[(code - 0xac00) % 28]] : [ch]
+    return parts.flatMap(j => (j ? [...(HANGUL_COMPOUND[j] ?? j)] : []))
+  }
+  if (script === 'kana') {
+    const base = ch.normalize('NFD').replace(/[\u3099\u309a]/g, '')
+    return [SMALL_KANA[base] ?? base]
+  }
+  return [ch]
+}
+
+/** The letters the learner has been shown so far in the script lesson, for scripts whose items are letters; undefined where that is not how the script is taught (tones for Mandarin). */
+export function metScriptLetters(p: Progress, pack: Pack): Set<string> | undefined {
+  if (!pack.scriptItems || !(pack.script === 'cyrillic' || pack.script === 'kana' || pack.script === 'hangul')) return undefined
+  const out = new Set<string>()
+  for (const item of pack.scriptItems) {
+    if ((p.script[item.symbol]?.seen ?? 0) < 1) continue
+    for (const ch of item.symbol.replace(/\s+/g, '')) {
+      out.add(ch.toLowerCase())
+      out.add(ch.toUpperCase())
+    }
+  }
+  return out
+}
+
+/** Whether every letter of the word has been introduced; spaces, digits and punctuation do not count. Kanji are never readable from kana alone. */
+export function readableWith(word: string, met: Set<string>, script: ScriptKind): boolean {
+  for (const ch of word) {
+    if (!/\p{L}/u.test(ch) || ch === 'ー') continue
+    for (const letter of scriptLetters(ch, script)) if (!met.has(letter)) return false
+  }
+  return true
+}
+
 /** Build the plan for the turn about to run. Mutates `p` (new words get introduced) and returns the plan. */
 export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Plan {
   const tune = tuning(s, now)
@@ -425,7 +474,11 @@ export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Pla
   // 1. Side-by-side words: reviews that are due (most fragile first), and a new word on its own cadence
   //    so reviews never crowd out growth. New words arrive every few turns at first, every turn by level 40.
   const need = annotatedPerReply(level, tune.density, info.phase)
-  const due = annotated.filter(w => isDue(w, turn, now)).sort((a, b) => a.box - b.box || a.introducedTurn - b.introducedTurn)
+  // In the script phase a word only appears once every letter in it has been taught, so each word is
+  // one the learner can actually sound out; a word met before its letters waits until they are.
+  const met = info.phase === 'script' ? metScriptLetters(p, pack) : undefined
+  const readable = (t: string) => !met || readableWith(t, met, pack.script)
+  const due = annotated.filter(w => isDue(w, turn, now) && readable(w.t)).sort((a, b) => a.box - b.box || a.introducedTurn - b.introducedTurn)
   const annotate: WordState[] = due.slice(0, need)
   const newEvery = Math.max(1, Math.round(3 / tune.density / (1 + level / 20)))
   const wantsNew = annotated.length === 0 || turn % newEvery === 0 || annotate.length < need
@@ -433,7 +486,7 @@ export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Pla
     const room = Math.max(0, activeCap(level, tune.density) - annotated.length)
     const slots = Math.max(1, need + 1 - annotate.length)
     const maxNew = info.phase === 'script' || level < 10 ? 1 : level < 40 ? 2 : 3
-    const fresh = freshCandidates(pack, p, level).slice(0, Math.min(room, slots, maxNew))
+    const fresh = freshCandidates(pack, p, level).filter(w => readable(w.t)).slice(0, Math.min(room, slots, maxNew))
     for (const w of fresh) {
       const st: WordState = { t: w.t, n: w.n, stage: 'annotated', box: 0, seen: 0, bareSeen: 0, produced: 0, misses: 0, dueTurn: turn, dueAt: now, introducedTurn: turn }
       p.words[w.t] = st
@@ -852,7 +905,8 @@ export function lessonSection(pack: Pack, p: Progress, s: Settings, info: LevelI
     `The person you are talking to is learning ${pack.name} (${pack.nativeName}) from ${native}, gradually, through these conversations. There is no lesson mode: you weave a little ${pack.name} into your replies and the plugin tracks what they have seen. Their level is ${info.level.toFixed(1)} of 100 (phase: ${info.phase}).`,
     ``,
     `## Where`,
-    `Only in the final reply to the person, the one that ends your turn. Never in progress notes while you work, tool inputs, commit messages, code, commands, file paths, identifiers, URLs, quoted error text, or anything they might copy and run. Never inside code blocks or inline code.`,
+    `Only in the final reply to the person, the one that ends your turn, and only in the words you say to them. Never in progress notes while you work, tool inputs, commit messages, code, commands, file paths, identifiers, URLs, quoted error text, or anything they might copy and run. Never inside code blocks or inline code.`,
+    `Never in anything written for the person to send or publish as their own: a drafted email, Slack or chat message, GitHub comment, pull request or issue text, commit message, ticket, documentation, README, or any text they will paste elsewhere. Those read as the person's words, not yours, and a ${pack.name} word in them would go out under their name. Keep such a draft free of ${pack.name} and of the footer; put the footer after the draft, on its own line, as part of your reply around it.`,
     ``,
     `## How`,
     `- A side-by-side word is written as the ${native} word followed by the ${pack.name} word ${markerRule(s)}: "${sample}". Inflect the ${pack.name} word to fit (plural, gender, verb form). Put it where the ${native} word naturally occurs; if a planned word would not fit the reply, skip it rather than force it.`,

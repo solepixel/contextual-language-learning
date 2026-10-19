@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 (2026-10-19)
+- The lesson now tells Claude to keep drafted text clean: an email, Slack message, GitHub comment, pull request, ticket, commit message or documentation written for you to send as your own gets no woven words and no footer, since those would go out under your name.
+- In the script phase, a word is only woven in once every letter in it has been taught in the footer, so the first words are ones you can sound out (да after А and Д) rather than a whole word in an unfamiliar alphabet. A word met earlier waits until its letters have been shown. Hangul syllables count by their jamo and voiced or small kana by their base kana; kanji wait for the words phase.
+
 ## 0.2.2 (2026-10-19)
 - A misspelled language is pointed out at session start ("Russain" is not a language it knows. Did you mean Russian?) and no pack is generated for it until the next session, so a typo no longer costs tokens.
 - An unreadable birth date is pointed out at session start with the accepted format, instead of being silently ignored.
