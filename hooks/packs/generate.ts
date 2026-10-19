@@ -36,6 +36,19 @@ export function generatePrompt(r: GenerateRequest): string {
   ].join('\n')
 }
 
+/**
+ * A rough token count for one generation call, so the learner can be told what
+ * a pack costs before it is built: the prompt plus the exclusion list in, and
+ * about 22 tokens per word (30 with a reading) plus the phrases and sounds out.
+ */
+export function generationEstimate(r: Pick<GenerateRequest, 'count' | 'haveWords' | 'wantAlphabet' | 'script'>): { input: number; output: number } {
+  const perWord = r.script === 'latin' ? 22 : 30
+  const input = 450 + Math.min(600, r.haveWords.length) * 4
+  const output = r.count * perWord + 20 * (r.script === 'latin' ? 25 : 40) + (r.wantAlphabet ? 900 : 10)
+  const round = (n: number) => Math.round(n / 100) * 100
+  return { input: round(input), output: round(output) }
+}
+
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim() : undefined
 }

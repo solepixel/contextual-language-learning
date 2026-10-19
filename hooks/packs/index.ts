@@ -1,5 +1,13 @@
 import type { Pack } from '../engine'
+import { de } from './de'
 import { es } from './es'
+import { fr } from './fr'
+import { it } from './it'
+import { ja } from './ja'
+import { ko } from './ko'
+import { pt } from './pt'
+import { ru } from './ru'
+import { zh } from './zh'
 import { scriptFor } from './scripts'
 
 const NAMES: Record<string, { code: string; name: string; nativeName: string }> = {
@@ -62,14 +70,15 @@ export function resolveLanguage(input: string): Language {
   return { code: key.replace(/[^a-z0-9]+/g, '-').slice(0, 24) || 'xx', name, nativeName: name }
 }
 
-const SHIPPED: Record<string, Pack> = { es }
+/** Curated packs. Each is glossed in one native language, so a learner whose own language differs gets a generated pack instead. */
+export const SHIPPED: Pack[] = [es, fr, de, it, pt, ja, ko, zh, ru]
 
-/** The curated pack when one ships for the language; otherwise an empty pack with its script primer, for the generator to fill. */
-export function basePack(lang: Language): { pack: Pack; isShipped: boolean } {
-  const shipped = SHIPPED[lang.code]
+/** The curated pack when one ships for the language glossed in `native`; otherwise an empty pack with its script primer, for the generator to fill. */
+export function basePack(lang: Language, native = 'en'): { pack: Pack; isShipped: boolean } {
+  const shipped = SHIPPED.find(p => p.code === lang.code && p.native === native)
   if (shipped) return { pack: shipped, isShipped: true }
   const info = scriptFor(lang.code)
-  const pack: Pack = { code: lang.code, name: lang.name, nativeName: lang.nativeName, script: info.script, words: [], phrases: [], alphabet: info.alphabet }
+  const pack: Pack = { code: lang.code, native, name: lang.name, nativeName: lang.nativeName, script: info.script, words: [], phrases: [], alphabet: info.alphabet }
   if (info.scriptItems) pack.scriptItems = info.scriptItems
   return { pack, isShipped: false }
 }

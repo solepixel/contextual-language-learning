@@ -1,6 +1,6 @@
 # ContextLang
 
-A [Claude Code](https://code.claude.com) plugin that teaches you a language while you work. There is no lesson mode and nothing to schedule. Claude keeps answering in your language, and a little of the language you are learning rides along in each reply: one or two words at first, side by side with their meaning, then bare words you have seen enough times, then short phrases, then sentences, until most of the reply is in the new language. Progress is tracked per word on a spaced-repetition schedule and kept between sessions.
+A [Claude Code](https://code.claude.com) plugin that teaches you a language while you work. The idea behind it: if most of our working day is now a conversation with Claude Code, that conversation can teach us something too. The hours spent prompting are already there, so a little of them can go toward expanding our own human knowledge, a language at a time, at no cost to the work itself. There is no lesson mode and nothing to schedule. Claude keeps answering in your language, and a little of the language you are learning rides along in each reply: one or two words at first, side by side with their meaning, then bare words you have seen enough times, then short phrases, then sentences, until most of the reply is in the new language. Progress is tracked per word on a spaced-repetition schedule and kept between sessions.
 
 A first-day reply, English to Spanish, looks like this:
 
@@ -21,7 +21,7 @@ A month in, the same kind of reply carries a handful of words you already know w
 - **Mixing languages is encouraged.** Write any of the new language in your prompt and Claude judges it: a word of praise when it is right, the corrected form when it is not. Correct use counts for more than reading, so your level moves faster when you try.
 - **Only the final reply.** Nothing is woven into progress notes while Claude works, tool calls, commit messages, code, commands, paths, identifiers, or anything you might copy.
 - **A granular level, 0 to 100 with decimals,** computed from how well each word, phrase and sound is known, and seven phases that decide how much of a reply is in the new language.
-- **Any language.** Spanish ships with a curated pack. For any other language the plugin asks the model for a frequency-ordered pack on first use and extends it as you advance. Japanese, Korean, Mandarin and Cyrillic languages begin with a script phase that teaches the writing system before words are woven in.
+- **Any language.** Nine languages ship with curated packs: Spanish, French, German, Italian, Portuguese, Japanese, Korean, Mandarin and Russian. For any other language the plugin asks the model for a frequency-ordered pack on first use and extends it as you advance, and tells you roughly what that costs in tokens. Japanese, Korean, Mandarin and Cyrillic languages begin with a script phase that teaches the writing system before words are woven in.
 - **`/contextlang`** shows your status, lists your words, pauses, resets, and lets you mark a word forgotten or known.
 
 ## Installation
@@ -64,13 +64,14 @@ All of these are rows in `/config`.
 | --- | --- | --- |
 | Language to learn | Spanish | By name: Spanish, French, Japanese, Korean, and so on. |
 | Your language | English | The language replies stay in until the new one has earned its way in. |
-| Your age | 0 (unset) | Under 10 and over 60 get a lighter density and more repetition per word; teens a little of each. |
+| Your date of birth | blank (unset) | `YYYY-MM-DD`. Age is worked out from it on the day, so it never goes stale. Under 10 and over 60 get a lighter density and more repetition per word; teens a little of each. |
 | Pace | steady | `gentle`, `steady` or `brisk`: how quickly new words arrive and how dense a reply gets. |
 | Marker style | bold | How the translated word stands out: `bold` gives **[preguntas]**, `italic` gives *[preguntas]*, `code` gives `[preguntas]` (colored in the terminal), `brackets` gives plain [preguntas]. |
+| Pack model | claude-sonnet-5-5 | The model that builds a word pack for a language with no shipped one. `session` uses the session's own model. |
 | Show progress band | off | A one-line band above the prompt with your level and word count. |
 | Enabled | on | Turn it off without losing progress. |
 
-Progress is kept per language in the plugin's own store, so switching languages and back loses nothing.
+Progress is kept per language in the plugin's own store, so switching languages and back loses nothing, and your level in one language never carries over to another.
 
 ## The command
 
@@ -83,6 +84,7 @@ Progress is kept per language in the plugin's own store, so switching languages 
 | `/contextlang pause` and `resume` | Stop and start without losing anything. |
 | `/contextlang level <n>` | Pin the level (0 to 100) to try a phase; `level auto` lets progress set it again. |
 | `/contextlang reset confirm` | Erase this language's progress. |
+| `/contextlang export [path]` | Write the generated pack as a source file you can review and contribute (see below). |
 
 ## How it paces you
 
@@ -94,7 +96,7 @@ The design follows what the second-language research supports rather than a fixe
 - **Output counts more than input.** Using a word correctly in your own prompt is worth more than reading it, and three correct uses take a word from bare to known (Swain's output hypothesis).
 - **Frequency first.** Words arrive in frequency order, everyday language before anything else; the level is scored against the roughly two thousand word families that cover most everyday text (Nation). Programming vocabulary unlocks at level 25 and specialist computing vocabulary at 50, so technical words wait until they will not get in the way.
 - **Scripts before words.** For Japanese, Korean, Mandarin and Cyrillic languages the first phase teaches the script in the footer, three symbols at a time, and weaves in at most one word per reply, with its reading. The reading drops once most of the script is known.
-- **Age.** Learning ability stays high until the late teens and declines slowly after (Hartshorne et al., 2018). Younger children and older adults get a lighter density and more encounters per word; the optional age setting is a nudge, not a gate.
+- **Age.** Learning ability stays high until the late teens and declines slowly after (Hartshorne et al., 2018). Younger children and older adults get a lighter density and more encounters per word; the optional date-of-birth setting is a nudge, not a gate.
 
 Phases by level:
 
@@ -127,11 +129,13 @@ Two things keep it honest. Progress is credited from what actually appeared in t
 
 ### Packs
 
-`hooks/packs/es.ts` is the curated Spanish pack: over four hundred words ordered by usefulness in everyday talk and in a coding assistant's replies, forty-five phrases with the level they unlock at, and fourteen letter-and-sound notes. `hooks/packs/scripts.ts` holds the hiragana, katakana, hangul, pinyin and Cyrillic primers and sound notes for French, German, Italian and Portuguese.
+`hooks/packs/es.ts` is the curated Spanish pack: over four hundred words ordered by usefulness in everyday talk and in a coding assistant's replies, forty-five phrases with the level they unlock at, and fourteen letter-and-sound notes. French, German, Italian and Portuguese (`fr.ts`, `de.ts`, `it.ts`, `pt.ts`, Brazilian with European forms noted) follow the same concept list, so every pack covers the same ground. Russian, Japanese, Korean and Mandarin (`ru.ts`, `ja.ts`, `ko.ts`, `zh.ts`) carry a reading on every entry (transliteration, romaji, Revised Romanization, pinyin with tone marks) that shows until most of the script is known, and their sound notes cover what the script primer does not: stress and reduction, pitch, tones, particles, counters and politeness. All nine are glossed in English: a pack belongs to a (language, native language) pair, so a Russian speaker learning Spanish gets a generated pack rather than the English one. `hooks/packs/scripts.ts` holds the hiragana, katakana, hangul, pinyin and Cyrillic primers and sound notes for French, German, Italian and Portuguese.
 
 Any other language gets its pack from one model call on first use (`hooks/packs/generate.ts`): a frequency-ordered list with meanings, tiers, readings for non-Latin scripts, phrases and, where no primer ships, sound notes. The reply is parsed defensively and stored; when the pack runs low for your level, the next hundred words are fetched in the background. A pack is kept separately from progress, so a reset keeps it.
 
-Contributions of curated packs for other languages are welcome: copy the shape of `es.ts`, add the language to `SHIPPED` in `hooks/packs/index.ts`, and the tests will check for duplicate keys.
+What generation costs: the first batch (150 words, 20 phrases, the sound notes) is about 6k tokens, and each later batch of a hundred words about 5k, more for a language with readings. A pack the size of the Spanish one is four batches over the first weeks, so 20k to 25k tokens in all. The first time, a toast says which model is building the pack and roughly how many tokens it will take. By default that is Sonnet, not the session model, which keeps the cost small; the `pack model` setting changes it.
+
+Shipping a pack makes that cost zero for everyone after you. `/contextlang export` writes the pack the model generated for your language as a source file in the shape of `es.ts` and `ru.ts`. Review the spelling, tiers, readings and notes (model output has a few of each wrong), save it as `hooks/packs/<code>.ts`, add it to `SHIPPED` in `hooks/packs/index.ts`, and the tests will check for duplicate keys. Contributions of curated packs for other languages, and of packs glossed in languages other than English, are welcome.
 
 ## Development
 

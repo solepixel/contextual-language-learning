@@ -16,6 +16,8 @@ export type AlphabetItem = { symbol: string; sound: string; example?: string }
 
 export type Pack = {
   code: string
+  /** Language code of the glosses, the learner's own language (en for the packs that ship). */
+  native: string
   name: string
   nativeName: string
   script: ScriptKind
@@ -35,21 +37,25 @@ export type MarkerStyle = 'brackets' | 'bold' | 'italic' | 'code'
 export type Settings = {
   target: string
   native: string
-  age: number
+  /** ISO date (YYYY-MM-DD), or '' when unset. Age is derived from it so it never goes stale. */
+  birthDate: string
   pace: Pace
   marker: MarkerStyle
   showBand: boolean
   enabled: boolean
+  /** The model that generates a pack for a language without a shipped one; 'session' means whatever model the session runs. */
+  packModel: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   target: 'Spanish',
   native: 'English',
-  age: 0,
+  birthDate: '',
   pace: 'steady',
   marker: 'bold',
   showBand: false,
   enabled: true,
+  packModel: 'claude-sonnet-5-5',
 }
 
 export function readSettings(options: Readonly<Record<string, unknown>>): Settings {
@@ -61,18 +67,49 @@ export function readSettings(options: Readonly<Record<string, unknown>>): Settin
   return {
     target: str('target_language', DEFAULT_SETTINGS.target),
     native: str('native_language', DEFAULT_SETTINGS.native),
-    age: Math.max(0, Math.round(num('age', 0))),
+    birthDate: parseBirthDate(options['birth_date']),
     pace: pace === 'gentle' || pace === 'brisk' ? pace : 'steady',
     marker: marker === 'brackets' || marker === 'italic' || marker === 'code' ? marker : 'bold',
     showBand: bool('show_band', false),
     enabled: bool('enabled', true),
+    packModel: str('pack_model', DEFAULT_SETTINGS.packModel),
   }
+}
+
+/**
+ * Normalise a birth date setting to YYYY-MM-DD, or '' when it is missing,
+ * unparseable or in the future. Accepts ISO dates and anything Date.parse
+ * understands (3/14/1985, March 14 1985).
+ */
+export function parseBirthDate(v: unknown, now: number = Date.now()): string {
+  if (typeof v !== 'string' || !v.trim()) return ''
+  const raw = v.trim()
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw)
+  const d = iso ? new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))) : new Date(raw)
+  if (Number.isNaN(d.getTime()) || d.getTime() > now) return ''
+  const y = iso ? d.getUTCFullYear() : d.getFullYear()
+  const m = iso ? d.getUTCMonth() : d.getMonth()
+  const day = iso ? d.getUTCDate() : d.getDate()
+  if (iso && (m !== Number(iso[2]) - 1 || day !== Number(iso[3]))) return ''
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/** Whole years between a YYYY-MM-DD birth date and `now`; 0 when the birth date is unset. */
+export function ageAt(birthDate: string, now: number = Date.now()): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate)
+  if (!m) return 0
+  const t = new Date(now)
+  let age = t.getUTCFullYear() - Number(m[1])
+  const beforeBirthday = t.getUTCMonth() + 1 < Number(m[2]) || (t.getUTCMonth() + 1 === Number(m[2]) && t.getUTCDate() < Number(m[3]))
+  if (beforeBirthday) age -= 1
+  return Math.max(0, age)
 }
 
 /**
  * The numbers the research sets and the settings scale.
  *
- * density: how much target language one reply carries (pace × age).
+ * density: how much target language one reply carries (pace × age, where
+ * age is worked out from the birth date each time so it never goes stale).
  * promoteAfter: side-by-side exposures before a word goes bare. Incidental
  * vocabulary studies put form-meaning learning at roughly 6 to 16 encounters
  * (Nation 2001; Webb 2007 found most gains by ~10), so steady uses 8.
@@ -81,17 +118,18 @@ export function readSettings(options: Readonly<Record<string, unknown>>): Settin
  * teens; younger children and older adults benefit from lower density and
  * more repetition, so both get more encounters per word and fewer per reply.
  */
-export function tuning(s: Settings) {
+export function tuning(s: Settings, now: number = Date.now()) {
   const pace = { gentle: 0.7, steady: 1, brisk: 1.4 }[s.pace]
+  const age = ageAt(s.birthDate, now)
   let ageDensity = 1
   let ageReps = 1
-  if (s.age > 0 && s.age < 10) {
+  if (age > 0 && age < 10) {
     ageDensity = 0.6
     ageReps = 1.5
-  } else if (s.age > 0 && s.age < 18) {
+  } else if (age > 0 && age < 18) {
     ageDensity = 0.85
     ageReps = 1.15
-  } else if (s.age >= 60) {
+  } else if (age >= 60) {
     ageDensity = 0.8
     ageReps = 1.25
   }
@@ -245,22 +283,23 @@ export function wordMastery(w: WordState): number {
 const TARGET_WORDS = 2000
 const TARGET_PHRASES = 150
 
-export function computeLevel(p: Progress, pack: Pack, s: Settings): LevelInfo {
-  const tune = tuning(s)
+export function computeLevel(p: Progress, pack: Pack, s: Settings, now: number = Date.now()): LevelInfo {
+  const tune = tuning(s, now)
   const words = Object.values(p.words)
   const wordPoints = words.reduce((sum, w) => sum + wordMastery(w), 0)
   const phrasesSeen = Object.values(p.phrases).filter(x => x.seen > 0).length
   const phrasePoints = Object.values(p.phrases).reduce((sum, x) => sum + Math.min(1, x.seen / tune.itemReps), 0) * 2
   const alphabetTotal = pack.alphabet.length
   const alphabetDone = pack.alphabet.filter(a => (p.alphabet[a.symbol]?.seen ?? 0) >= tune.itemReps).length
-  const alphabetMastery = alphabetTotal === 0 ? 1 : pack.alphabet.reduce((sum, a) => sum + Math.min(1, (p.alphabet[a.symbol]?.seen ?? 0) / tune.itemReps), 0) / alphabetTotal
+  const alphabetMastery = alphabetTotal === 0 ? 0 : pack.alphabet.reduce((sum, a) => sum + Math.min(1, (p.alphabet[a.symbol]?.seen ?? 0) / tune.itemReps), 0) / alphabetTotal
   const scriptItems = pack.scriptItems ?? []
   const scriptTotal = scriptItems.length
   const scriptDone = scriptItems.filter(a => (p.script[a.symbol]?.seen ?? 0) >= tune.scriptReps).length
   const scriptMastery = scriptTotal === 0 ? 1 : scriptItems.reduce((sum, a) => sum + Math.min(1, (p.script[a.symbol]?.seen ?? 0) / tune.scriptReps), 0) / scriptTotal
 
-  const total = TARGET_WORDS + 2 * TARGET_PHRASES + 20 + (scriptTotal > 0 ? 40 : 0)
-  const points = wordPoints + phrasePoints + alphabetMastery * 20 + (scriptTotal > 0 ? scriptMastery * 40 : 0)
+  // Sounds and script only count once the pack has them; a pack still being generated must not hand out free points.
+  const total = TARGET_WORDS + 2 * TARGET_PHRASES + (alphabetTotal > 0 ? 20 : 0) + (scriptTotal > 0 ? 40 : 0)
+  const points = wordPoints + phrasePoints + (alphabetTotal > 0 ? alphabetMastery * 20 : 0) + (scriptTotal > 0 ? scriptMastery * 40 : 0)
   let level = Math.min(100, 100 * Math.pow(Math.max(0, points) / total, 0.6))
   if (typeof p.levelOverride === 'number') level = Math.max(0, Math.min(100, p.levelOverride))
   level = Math.round(level * 100) / 100
@@ -347,8 +386,8 @@ export function freshCandidates(pack: Pack, p: Progress, level: number): WordEnt
 
 /** Build the plan for the turn about to run. Mutates `p` (new words get introduced) and returns the plan. */
 export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Plan {
-  const tune = tuning(s)
-  const info = computeLevel(p, pack, s)
+  const tune = tuning(s, now)
+  const info = computeLevel(p, pack, s, now)
   const turn = p.turns + 1
   const level = info.level
   const showReading = pack.script !== 'latin' && info.scriptMastery < 0.85
@@ -403,7 +442,7 @@ export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Pla
 }
 
 function pickFooter(p: Progress, pack: Pack, s: Settings, info: LevelInfo, turn: number, now: number): Footer | undefined {
-  const tune = tuning(s)
+  const tune = tuning(s, now)
   const scriptItems = pack.scriptItems ?? []
   if (scriptItems.length > 0 && info.scriptMastery < 1) {
     const due = scriptItems.filter(a => {
@@ -544,7 +583,7 @@ export type Credit = { annotated: string[]; bare: string[]; footer: boolean; pro
 
 /** Read the final reply against the plan and advance every word it carried. Mutates `p`. */
 export function creditAnswer(p: Progress, plan: Plan | undefined, answer: string, s: Settings, now: number): Credit {
-  const tune = tuning(s)
+  const tune = tuning(s, now)
   const credit: Credit = { annotated: [], bare: [], footer: false, promoted: [], learned: [] }
   const turn = plan?.turn ?? p.turns + 1
   p.turns = Math.max(p.turns, turn)
@@ -831,6 +870,7 @@ export function progressBar(level: number, width = 20): string {
 export function statusText(pack: Pack, p: Progress, s: Settings, info: LevelInfo, now: number): string {
   const c = info.counts
   const turn = p.turns + 1
+  const age = ageAt(s.birthDate, now)
   const due = Object.values(p.words)
     .filter(w => w.stage === 'annotated' && isDue(w, turn, now))
     .sort((a, b) => a.box - b.box)
@@ -838,7 +878,7 @@ export function statusText(pack: Pack, p: Progress, s: Settings, info: LevelInfo
     .map(w => `${w.t} (${w.n})`)
   const lines = [
     `**ContextLang** · ${pack.name} (${pack.nativeName}) from ${s.native}${p.isPaused || !s.enabled ? ' · paused' : ''}`,
-    `Level **${info.level.toFixed(2)}** / 100 · phase: ${info.phase} · pace: ${s.pace}${s.age > 0 ? ` · age ${s.age}` : ''}`,
+    `Level **${info.level.toFixed(2)}** / 100 · phase: ${info.phase} · pace: ${s.pace}${age > 0 ? ` · age ${age}` : ''}`,
     `\`${progressBar(info.level)}\``,
     ``,
     `Words: ${c.annotated} side by side · ${c.bare} bare · ${c.known} known · ${c.met} met of ${c.inPack} in the pack`,

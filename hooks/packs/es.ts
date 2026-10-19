@@ -444,6 +444,7 @@ const tech: WordEntry[] = [
 
 export const es: Pack = {
   code: 'es',
+  native: 'en',
   name: 'Spanish',
   nativeName: 'español',
   script: 'latin',

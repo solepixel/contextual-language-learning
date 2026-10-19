@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  ageAt,
   applyReport,
   bracketed,
   computeLevel,
@@ -11,6 +12,7 @@ import {
   makePlan,
   matchesForm,
   newProgress,
+  parseBirthDate,
   readSettings,
   resetWord,
   styleExample,
@@ -20,30 +22,50 @@ import {
 } from '../hooks/engine'
 import type { Settings } from '../hooks/engine'
 import { es } from '../hooks/packs/es'
-import { parseGenerated } from '../hooks/packs/generate'
-import { resolveLanguage, basePack } from '../hooks/packs/index'
+import { ru } from '../hooks/packs/ru'
+import { generationEstimate, parseGenerated } from '../hooks/packs/generate'
+import { resolveLanguage, basePack, SHIPPED } from '../hooks/packs/index'
+import { packSource } from '../hooks/packs/source'
 
 const S: Settings = readSettings({})
 const HOUR = 3600_000
 
 describe('settings and tuning', () => {
   test('defaults fill in and bad values fall back', async () => {
-    const s = readSettings({ target_language: ' French ', pace: 'turbo', age: -4, marker_style: 'bold', show_band: true })
+    const s = readSettings({ target_language: ' French ', pace: 'turbo', birth_date: 'yesterday', marker_style: 'bold', show_band: true })
     expect(s.target).toBe('French')
     expect(s.pace).toBe('steady')
-    expect(s.age).toBe(0)
+    expect(s.birthDate).toBe('')
     expect(s.marker).toBe('bold')
     expect(s.showBand).toBe(true)
   })
 
+  test('a birth date is normalised and age is derived from it on the day', async () => {
+    const now = Date.UTC(2026, 9, 18) // 2026-10-18
+    expect(parseBirthDate('1990-03-14', now)).toBe('1990-03-14')
+    expect(parseBirthDate(' 1990-3-4 ', now)).toBe('1990-03-04')
+    expect(parseBirthDate('2027-01-01', now)).toBe('')
+    expect(parseBirthDate('1990-02-30', now)).toBe('')
+    expect(parseBirthDate(12, now)).toBe('')
+    expect(ageAt('', now)).toBe(0)
+    expect(ageAt('1990-10-18', now)).toBe(36)
+    expect(ageAt('1990-10-19', now)).toBe(35)
+    expect(ageAt('2000-02-29', Date.UTC(2027, 1, 28))).toBe(26)
+    expect(ageAt('2000-02-29', Date.UTC(2027, 2, 1))).toBe(27)
+  })
+
   test('young and old learners get more repetition and a lighter density', async () => {
-    const adult = tuning({ ...S, age: 30 })
-    const child = tuning({ ...S, age: 8 })
-    const elder = tuning({ ...S, age: 70 })
+    const now = Date.UTC(2026, 9, 18)
+    const adult = tuning({ ...S, birthDate: '1996-05-01' }, now)
+    const child = tuning({ ...S, birthDate: '2018-05-01' }, now)
+    const elder = tuning({ ...S, birthDate: '1956-05-01' }, now)
     expect(child.density).toBeLessThan(adult.density)
     expect(elder.density).toBeLessThan(adult.density)
     expect(child.promoteAfter).toBeGreaterThan(adult.promoteAfter)
-    expect(tuning({ ...S, pace: 'brisk' }).density).toBeGreaterThan(adult.density)
+    expect(tuning({ ...S, pace: 'brisk' }, now).density).toBeGreaterThan(adult.density)
+    // The same learner ages into the next band without touching the setting.
+    const later = Date.UTC(2034, 9, 18) // the child is 16 by then
+    expect(tuning({ ...S, birthDate: '2018-05-01' }, later).density).toBe(tuning({ ...S, birthDate: '1996-05-01' }, now).density * 0.85)
   })
 })
 
@@ -254,6 +276,73 @@ describe('packs', () => {
     const keys = es.words.map(w => w.t)
     expect(new Set(keys).size).toBe(keys.length)
     expect(es.words.length).toBeGreaterThan(400)
+  })
+
+  test('the Russian pack has no duplicate keys and every entry carries a reading', async () => {
+    const keys = ru.words.map(w => w.t.toLowerCase())
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(ru.words.length).toBeGreaterThan(400)
+    expect(ru.words.every(w => typeof w.reading === 'string' && w.reading.length > 0)).toBe(true)
+    expect(ru.phrases.every(p => typeof p.reading === 'string' && p.reading.length > 0)).toBe(true)
+    const phraseKeys = ru.phrases.map(p => p.t.toLowerCase())
+    expect(new Set(phraseKeys).size).toBe(phraseKeys.length)
+    expect(ru.scriptItems?.length).toBe(33)
+  })
+
+  test('every shipped pack is well formed: unique keys, over 400 words, readings where the script needs them', async () => {
+    expect(SHIPPED.map(p => p.code).sort()).toEqual(['de', 'es', 'fr', 'it', 'ja', 'ko', 'pt', 'ru', 'zh'])
+    for (const p of SHIPPED) {
+      expect(p.native).toBe('en')
+      expect(resolveLanguage(p.name).code).toBe(p.code)
+      const keys = p.words.map(w => w.t.toLowerCase())
+      expect(new Set(keys).size, `${p.code} duplicate words`).toBe(keys.length)
+      expect(p.words.length, `${p.code} word count`).toBeGreaterThan(400)
+      const phraseKeys = p.phrases.map(x => x.t.toLowerCase())
+      expect(new Set(phraseKeys).size, `${p.code} duplicate phrases`).toBe(phraseKeys.length)
+      expect(p.phrases.length, `${p.code} phrase count`).toBeGreaterThan(30)
+      expect(p.alphabet.length, `${p.code} sound notes`).toBeGreaterThan(8)
+      expect(p.words.filter(w => w.tier === 'tech').length, `${p.code} tech words`).toBeGreaterThan(30)
+      expect(p.words.filter(w => w.tier === 'deep').length, `${p.code} deep words`).toBeGreaterThan(10)
+      expect(p.words.every(w => w.t.trim() === w.t && w.n.trim() === w.n && w.t.length > 0 && w.n.length > 0), `${p.code} blank or padded entry`).toBe(true)
+      expect(p.words.every(w => (w.note ?? '').length <= 120), `${p.code} note over 120 chars`).toBe(true)
+      expect(p.phrases.every(x => x.minLevel >= 0 && x.minLevel <= 40), `${p.code} phrase level`).toBe(true)
+      if (p.script !== 'latin') {
+        expect(p.words.every(w => typeof w.reading === 'string' && w.reading.length > 0), `${p.code} word without reading`).toBe(true)
+        expect(p.phrases.every(x => typeof x.reading === 'string' && x.reading.length > 0), `${p.code} phrase without reading`).toBe(true)
+        expect((p.scriptItems ?? []).length, `${p.code} script items`).toBeGreaterThan(0)
+      } else {
+        expect(p.scriptItems).toBeUndefined()
+      }
+    }
+  })
+
+  test('a shipped pack only serves the native language it is glossed in', async () => {
+    expect(basePack(resolveLanguage('Spanish'), 'en').isShipped).toBe(true)
+    expect(basePack(resolveLanguage('Russian'), 'en').isShipped).toBe(true)
+    const forRussianSpeakers = basePack(resolveLanguage('Spanish'), 'ru')
+    expect(forRussianSpeakers.isShipped).toBe(false)
+    expect(forRussianSpeakers.pack.words.length).toBe(0)
+    expect(forRussianSpeakers.pack.native).toBe('ru')
+  })
+
+  test('a generated pack exports as the source of a shipped one', async () => {
+    const { pack } = basePack(resolveLanguage('Ukrainian'), 'en')
+    const src = packSource(pack, { words: [{ t: 'так', n: 'yes', reading: 'tak' }, { t: "it's", n: "o'clock", tier: 'tech' }], phrases: [{ t: 'дякую', n: 'thanks', minLevel: 1, reading: 'dyakuyu' }], alphabet: [{ symbol: 'r', sound: 'between r and l' }] })
+    expect(src).toContain("export const uk: Pack = {")
+    expect(src).toContain("  native: 'en',")
+    expect(src).toContain("{ t: 'так', n: 'yes', reading: 'tak' },")
+    expect(src).toContain("{ t: 'it\\'s', n: 'o\\'clock', tier: 'tech' },")
+    expect(src).toContain("{ t: 'дякую', n: 'thanks', minLevel: 1, reading: 'dyakuyu' },")
+    expect(src).toContain("scriptItems: scriptFor('uk').scriptItems,")
+    expect(packSource(basePack(resolveLanguage('Dutch'), 'en').pack)).not.toContain('scriptItems')
+  })
+
+  test('the cost of generating a pack is estimated in the thousands of tokens', async () => {
+    const first = generationEstimate({ count: 150, haveWords: [], wantAlphabet: true, script: 'latin' })
+    const later = generationEstimate({ count: 100, haveWords: new Array(300).fill('x'), wantAlphabet: false, script: 'cyrillic' })
+    expect(first.output).toBeGreaterThan(3000)
+    expect(first.output).toBeLessThan(8000)
+    expect(later.input).toBeGreaterThan(first.input)
   })
 
   test('a generated pack is parsed defensively', async () => {

@@ -22,9 +22,10 @@ import {
   wordsText,
 } from './engine'
 import type { LevelInfo, Pack, Plan, Progress, Settings, UsageReport } from './engine'
-import { generatePrompt, needsMoreWords, parseGenerated } from './packs/generate'
+import { generatePrompt, generationEstimate, needsMoreWords, parseGenerated } from './packs/generate'
 import type { Generated } from './packs/generate'
 import { basePack, resolveLanguage } from './packs/index'
+import { packSource } from './packs/source'
 
 const PLUGIN = 'contextlang'
 const REPORT_TOOL = 'mcp__contextlang__report'
@@ -40,8 +41,11 @@ type Ctx = {
   lesson: string
   lessonBucket: number
   isGenerating: boolean
+  isShipped: boolean
   progressKey: string
   packKey: string
+  /** Where packs were stored before the key carried the native language; read as a fallback for English natives. */
+  legacyPackKey: string
 }
 
 function isOn(ctx: Ctx): boolean {
@@ -77,20 +81,28 @@ function asGenerated(stored: unknown): Generated | undefined {
   return { words: g.words, phrases: Array.isArray(g.phrases) ? g.phrases : [], alphabet: Array.isArray(g.alphabet) ? g.alphabet : [] }
 }
 
-async function loadPack($: EngineInterface, ctx: Ctx): Promise<void> {
+/** The generated part of this language's pack, if any has been built. */
+async function storedPack($: EngineInterface, ctx: Ctx): Promise<Generated | undefined> {
   const stored = asGenerated(await $.store.get(ctx.packKey))
+  if (stored || !ctx.legacyPackKey) return stored
+  return asGenerated(await $.store.get(ctx.legacyPackKey))
+}
+
+async function loadPack($: EngineInterface, ctx: Ctx): Promise<void> {
+  const stored = await storedPack($, ctx)
   if (stored) ctx.pack = mergePack(ctx.basePack, stored)
 }
+
+const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n))
 
 /** One model call for the next batch of words; the result lands in the store and the working pack. */
 async function extendPack($: EngineInterface, ctx: Ctx, reason: string): Promise<boolean> {
   if (ctx.isGenerating) return false
   ctx.isGenerating = true
   try {
-    $.ui.status(`ContextLang: building the ${ctx.pack.name} word pack`)
-    const prior = asGenerated(await $.store.get(ctx.packKey)) ?? { words: [], phrases: [], alphabet: [] }
+    const prior = (await storedPack($, ctx)) ?? { words: [], phrases: [], alphabet: [] }
     const haveWords = ctx.pack.words.map(w => w.t)
-    const prompt = generatePrompt({
+    const request = {
       languageName: ctx.pack.name,
       nativeName: ctx.pack.nativeName,
       native: ctx.settings.native,
@@ -99,9 +111,20 @@ async function extendPack($: EngineInterface, ctx: Ctx, reason: string): Promise
       havePhrases: ctx.pack.phrases.map(p => p.t),
       wantAlphabet: ctx.pack.alphabet.length === 0,
       count: haveWords.length === 0 ? 150 : 100,
-    })
-    const model = await $.session.model()
-    const reply = await $.model.complete({ model, prompt, maxTokens: 12000, effort: 'medium', timeoutMs: 180_000 })
+    }
+    const prompt = generatePrompt(request)
+    const est = generationEstimate(request)
+    const sessionModel = await $.session.model()
+    const preferred = ctx.settings.packModel.trim() && ctx.settings.packModel.trim() !== 'session' ? ctx.settings.packModel.trim() : sessionModel
+    $.ui.status(`ContextLang: building the ${ctx.pack.name} word pack with ${preferred} (about ${tokens(est.input + est.output)} tokens)`)
+    if (reason === 'first use') {
+      $.ui.toast(
+        `ContextLang: no ${ctx.pack.name} pack ships for ${ctx.settings.native} speakers, so one is being generated with ${preferred}: about ${tokens(est.input + est.output)} tokens now, and a similar call each time your level unlocks more words (a few over the coming weeks). The model is the "pack model" row in /config; /contextlang export turns the result into a pack you can contribute.`,
+      )
+    }
+    const ask = (model: string) => $.model.complete({ model, prompt, maxTokens: 12000, effort: 'medium', timeoutMs: 180_000 })
+    let reply = await ask(preferred)
+    if (!reply.isAnswered && preferred !== sessionModel) reply = await ask(sessionModel)
     if (!reply.isAnswered) {
       $.ui.toast(`ContextLang could not build the ${ctx.pack.name} pack (${reply.reason}); it will try again later.`)
       return false
@@ -130,17 +153,22 @@ async function extendPack($: EngineInterface, ctx: Ctx, reason: string): Promise
 export const register: Register = (on, options) => {
   const settings: Settings = readSettings(options)
   const lang = resolveLanguage(settings.target)
+  const nativeCode = resolveLanguage(settings.native).code
+  const base = basePack(lang, nativeCode)
   const ctx: Ctx = {
     settings,
     lang,
-    basePack: basePack(lang).pack,
-    pack: basePack(lang).pack,
+    basePack: base.pack,
+    pack: base.pack,
     progress: undefined,
     lesson: '',
     lessonBucket: -1,
     isGenerating: false,
+    isShipped: base.isShipped,
+    // Progress is per target language; a pack is per (target, native) pair, since its glosses are in the native language.
     progressKey: `progress:${lang.code}`,
-    packKey: `pack:${lang.code}`,
+    packKey: `pack:${lang.code}:${nativeCode}`,
+    legacyPackKey: nativeCode === 'en' ? `pack:${lang.code}` : '',
   }
 
   on('session.start', async ($, e, next) => {
@@ -153,8 +181,8 @@ export const register: Register = (on, options) => {
     await loadPack($, ctx)
     await $.command.register({
       name: 'contextlang',
-      description: `Your ${ctx.pack.name} progress: status, words, pause, forgot <word>, know <word>, level <n>, reset`,
-      argumentHint: '[status|words|pause|resume|forgot <word>|know <word>|level <n>|reset]',
+      description: `Your ${ctx.pack.name} progress: status, words, pause, forgot <word>, know <word>, level <n>, reset, export`,
+      argumentHint: '[status|words|pause|resume|forgot <word>|know <word>|level <n>|reset|export [path]]',
     })
     await $.tool.register({
       name: 'report',
@@ -273,7 +301,7 @@ export const register: Register = (on, options) => {
       case 'forgot': {
         if (!arg) return { text: 'Usage: /contextlang forgot <word>' }
         const w = findState(ctx.progress, ctx.pack, arg)
-        if (!w) return { text: `"${arg}" is not in the ${ctx.pack.name} ctx.pack. You can still ask Claude what it means.` }
+        if (!w) return { text: `"${arg}" is not in the ${ctx.pack.name} pack. You can still ask Claude what it means.` }
         resetWord(w, ctx.progress.turns + 1, now)
         await save($, ctx)
         return { text: `${w.t} (${w.n}) goes back to side by side.` }
@@ -281,7 +309,7 @@ export const register: Register = (on, options) => {
       case 'know': {
         if (!arg) return { text: 'Usage: /contextlang know <word>' }
         const w = findState(ctx.progress, ctx.pack, arg)
-        if (!w) return { text: `"${arg}" is not in the ${ctx.pack.name} ctx.pack.` }
+        if (!w) return { text: `"${arg}" is not in the ${ctx.pack.name} pack.` }
         knowWord(w, ctx.progress.turns + 1, now)
         await save($, ctx)
         return { text: `${w.t} (${w.n}) is now ${w.stage}.` }
@@ -298,18 +326,30 @@ export const register: Register = (on, options) => {
         ctx.progress.levelOverride = n
         refreshLesson(ctx, true)
         await save($, ctx)
-        return { text: `Level pinned at ${n} (phase: ${info(ctx).phase}). /contextlang level auto to let ctx.progress set it again.` }
+        return { text: `Level pinned at ${n} (phase: ${info(ctx).phase}). /contextlang level auto to let progress set it again.` }
       }
       case 'reset': {
-        if (arg !== 'confirm') return { text: `This erases all ${ctx.pack.name} ctx.progress (${info(ctx).counts.met} words met, level ${info(ctx).level.toFixed(2)}). Type /contextlang reset confirm to go ahead.` }
+        if (arg !== 'confirm') return { text: `This erases all ${ctx.pack.name} progress (${info(ctx).counts.met} words met, level ${info(ctx).level.toFixed(2)}). Type /contextlang reset confirm to go ahead.` }
         ctx.progress = newProgress(lang.code, now)
         ctx.progress.sessions = 1
         refreshLesson(ctx, true)
         await save($, ctx)
-        return { text: `${ctx.pack.name} ctx.progress reset.` }
+        return { text: `${ctx.pack.name} progress reset.` }
+      }
+      case 'export': {
+        const extra = await storedPack($, ctx)
+        if (!extra || extra.words.length === 0) {
+          return { text: ctx.isShipped ? `${ctx.pack.name} ships with ContextLang and nothing has been generated on top of it, so there is nothing to export.` : `No ${ctx.pack.name} pack has been generated yet; it is built on first use.` }
+        }
+        const path = arg || `contextlang-${lang.code}.ts`
+        await $.fs.write(path, packSource(ctx.basePack, extra))
+        const merged = mergePack(ctx.basePack, extra)
+        return {
+          text: `Wrote ${merged.words.length} words, ${merged.phrases.length} phrases and ${merged.alphabet.length} sound notes to ${path}. Review the spelling, tiers, readings and notes, then save it as hooks/packs/${lang.code}.ts and add it to SHIPPED in hooks/packs/index.ts to contribute it, so nobody has to generate ${ctx.pack.name} again.`,
+        }
       }
       default:
-        return { text: `Unknown subcommand "${verb}". Try: status, words, pause, resume, forgot <word>, know <word>, level <n>, reset.` }
+        return { text: `Unknown subcommand "${verb}". Try: status, words, pause, resume, forgot <word>, know <word>, level <n>, reset, export.` }
     }
   })
 

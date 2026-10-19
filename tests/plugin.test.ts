@@ -87,6 +87,57 @@ describe('contextlang in a session', () => {
     expect(reset.text).toContain('reset confirm')
   })
 
+  test('progress is kept per language: a Russian learner does not inherit Spanish level', { options: { target_language: 'Russian' } }, async ($, on) => {
+    mock.store(on, {
+      'progress:es': {
+        version: 1, language: 'es', createdAt: 0, turns: 40, sessions: 3, lastSessionAt: 0, levelOverride: 15,
+        words: { hola: { t: 'hola', n: 'hello', stage: 'known', box: 6, seen: 8, bareSeen: 5, produced: 3, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 } },
+        phrases: {}, alphabet: {}, script: {},
+      },
+      'pack:ru': { words: [{ t: 'да', n: 'yes' }, { t: 'нет', n: 'no' }], phrases: [], alphabet: [] },
+    })
+    mock.clock(on, { now: 1_000_000 })
+    bottoms(on)
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+    const status = await $.command.run({ ...RUN, command: 'contextlang', args: 'status' })
+    expect(status.text).toContain('Russian')
+    expect(status.text).toContain('Level **0.00** / 100')
+    expect(status.text).toContain('Turns: 0 · Sessions: 1')
+    expect(status.text).not.toContain('hola')
+  })
+
+  test('export writes the generated pack as a shipped-pack source file', { options: { target_language: 'Klingon' } }, async ($, on) => {
+    mock.store(on, {
+      'pack:klingon:en': { words: [{ t: 'HIja\'', n: 'yes' }, { t: 'ghobe\'', n: 'no' }], phrases: [{ t: 'nuqneH', n: 'what do you want', minLevel: 0 }], alphabet: [{ symbol: 'q', sound: 'deep in the throat' }] },
+    })
+    mock.clock(on, { now: 1_000_000 })
+    bottoms(on)
+    const written: { path: string; text: string }[] = []
+    on('fs.write', (_, e) => {
+      written.push({ path: e.path, text: e.text })
+      return { value: undefined }
+    })
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+    const out = await $.command.run({ ...RUN, command: 'contextlang', args: 'export' })
+    expect(out.text).toContain('Wrote 2 words, 1 phrases and 1 sound notes to contextlang-klingon.ts')
+    expect(written.length).toBe(1)
+    expect(written[0]?.path.endsWith('contextlang-klingon.ts')).toBe(true)
+    expect(written[0]?.text).toContain('export const klingon: Pack = {')
+    expect(written[0]?.text).toContain("{ t: 'HIja\\'', n: 'yes' },")
+    const custom = await $.command.run({ ...RUN, command: 'contextlang', args: 'export packs/tlh.ts' })
+    expect(custom.text).toContain('to packs/tlh.ts')
+    expect(written[1]?.path.endsWith('packs/tlh.ts')).toBe(true)
+  })
+
+  test('a shipped language with nothing generated has nothing to export', async ($, on) => {
+    mock.store(on)
+    mock.clock(on, { now: 1_000_000 })
+    bottoms(on)
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+    const out = await $.command.run({ ...RUN, command: 'contextlang', args: 'export' })
+    expect(out.text).toContain('nothing to export')
+  })
+
   test('does nothing when disabled', { options: { enabled: false } }, async ($, on) => {
     mock.store(on)
     mock.clock(on)
