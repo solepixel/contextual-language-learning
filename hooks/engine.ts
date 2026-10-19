@@ -39,6 +39,8 @@ export type Settings = {
   native: string
   /** ISO date (YYYY-MM-DD), or '' when unset. Age is derived from it so it never goes stale. */
   birthDate: string
+  /** The birth date exactly as typed, so an unreadable one can be pointed out instead of silently dropped. */
+  birthDateRaw: string
   pace: Pace
   marker: MarkerStyle
   showBand: boolean
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   target: 'Spanish',
   native: 'English',
   birthDate: '',
+  birthDateRaw: '',
   pace: 'steady',
   marker: 'bold',
   showBand: false,
@@ -68,6 +71,7 @@ export function readSettings(options: Readonly<Record<string, unknown>>): Settin
     target: str('target_language', DEFAULT_SETTINGS.target),
     native: str('native_language', DEFAULT_SETTINGS.native),
     birthDate: parseBirthDate(options['birth_date']),
+    birthDateRaw: str('birth_date', ''),
     pace: pace === 'gentle' || pace === 'brisk' ? pace : 'steady',
     marker: marker === 'brackets' || marker === 'italic' || marker === 'code' ? marker : 'bold',
     showBand: bool('show_band', false),
@@ -92,6 +96,20 @@ export function parseBirthDate(v: unknown, now: number = Date.now()): string {
   const day = iso ? d.getUTCDate() : d.getDate()
   if (iso && (m !== Number(iso[2]) - 1 || day !== Number(iso[3]))) return ''
   return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/** What a learner should be told about settings the plugin could not use as typed. Empty when everything reads cleanly. */
+export function settingsWarnings(s: Settings, lang: { known: boolean; suggestion?: string }): string[] {
+  const out: string[] = []
+  if (!lang.known) {
+    out.push(
+      `ContextLang: "${s.target}" is not a language it knows.${lang.suggestion ? ` Did you mean ${lang.suggestion}?` : ''} Check the "Language to learn" row in /config. If it is right, a pack will be generated for it next session.`,
+    )
+  }
+  if (s.birthDateRaw && !s.birthDate) {
+    out.push(`ContextLang: birth date "${s.birthDateRaw}" is not readable; use YYYY-MM-DD, such as 1981-09-24. Age stays unset until then.`)
+  }
+  return out
 }
 
 /** Whole years between a YYYY-MM-DD birth date and `now`; 0 when the birth date is unset. */
@@ -876,10 +894,14 @@ export function progressBar(level: number, width = 20): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
-export function statusText(pack: Pack, p: Progress, s: Settings, info: LevelInfo, now: number): string {
+export type StatusSource = { isShipped: boolean; known: boolean; suggestion?: string }
+
+export function statusText(pack: Pack, p: Progress, s: Settings, info: LevelInfo, now: number, source?: StatusSource): string {
   const c = info.counts
   const turn = p.turns + 1
   const age = ageAt(s.birthDate, now)
+  const birth = s.birthDate ? `${s.birthDate} (age ${age})` : s.birthDateRaw ? `"${s.birthDateRaw}" is not readable, use YYYY-MM-DD` : 'not set'
+  const packSource = source ? (source.isShipped ? 'shipped pack' : source.known ? 'generated pack' : `not a known language${source.suggestion ? `, did you mean ${source.suggestion}?` : ''}`) : ''
   const due = Object.values(p.words)
     .filter(w => w.stage === 'annotated' && isDue(w, turn, now))
     .sort((a, b) => a.box - b.box)
@@ -893,6 +915,8 @@ export function statusText(pack: Pack, p: Progress, s: Settings, info: LevelInfo
     `Words: ${c.annotated} side by side · ${c.bare} bare · ${c.known} known · ${c.met} met of ${c.inPack} in the pack`,
     `Phrases seen: ${c.phrasesSeen} · Sounds: ${c.alphabetDone}/${c.alphabetTotal}${c.scriptTotal > 0 ? ` · Script: ${c.scriptDone}/${c.scriptTotal}` : ''}`,
     `Turns: ${p.turns} · Sessions: ${p.sessions} · Started: ${new Date(p.createdAt).toISOString().slice(0, 10)}`,
+    ``,
+    `Settings as read: learn ${s.target} → ${pack.name} (${pack.code}${packSource ? `, ${packSource}` : ''}) · from ${s.native} · birth date ${birth} · pace ${s.pace} · marker ${s.marker} · pack model ${s.packModel}`,
   ]
   if (due.length > 0) lines.push(``, `Due now: ${due.join(', ')}`)
   lines.push(``, `/contextlang words · forgot <word> · know <word> · pause · resume · level <n> · reset`)

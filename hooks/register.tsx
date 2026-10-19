@@ -17,6 +17,7 @@ import {
   newProgress,
   readSettings,
   resetWord,
+  settingsWarnings,
   statusText,
   turnNote,
   wordsText,
@@ -24,7 +25,7 @@ import {
 import type { LevelInfo, Pack, Plan, Progress, Settings, UsageReport } from './engine'
 import { generatePrompt, generationEstimate, needsMoreWords, parseGenerated } from './packs/generate'
 import type { Generated } from './packs/generate'
-import { basePack, resolveLanguage } from './packs/index'
+import { basePack, isKnownLanguage, resolveLanguage, suggestLanguage } from './packs/index'
 import { packSource } from './packs/source'
 
 const PLUGIN = 'contextlang'
@@ -42,6 +43,9 @@ type Ctx = {
   lessonBucket: number
   isGenerating: boolean
   isShipped: boolean
+  /** Whether the typed language is one the plugin knows by name; a typo gets a warning before a pack is generated for it. */
+  isKnown: boolean
+  suggestion?: string
   progressKey: string
   packKey: string
   /** Where packs were stored before the key carried the native language; read as a fallback for English natives. */
@@ -165,6 +169,8 @@ export const register: Register = (on, options) => {
     lessonBucket: -1,
     isGenerating: false,
     isShipped: base.isShipped,
+    isKnown: isKnownLanguage(settings.target),
+    suggestion: suggestLanguage(settings.target),
     // Progress is per target language; a pack is per (target, native) pair, since its glosses are in the native language.
     progressKey: `progress:${lang.code}`,
     packKey: `pack:${lang.code}:${nativeCode}`,
@@ -212,7 +218,15 @@ export const register: Register = (on, options) => {
       },
       isDeferred: false,
     })
-    if (ctx.pack.words.length === 0 && settings.enabled) await extendPack($, ctx, 'first use')
+    // A misspelled language should not cost a generated pack: warn first, and build it only on a later session.
+    const warnedKey = `warned-language:${lang.code}`
+    const warned = ctx.isKnown || Boolean(await $.store.get(warnedKey))
+    for (const w of settingsWarnings(settings, { known: ctx.isKnown, suggestion: ctx.suggestion })) {
+      if (w.includes('not a language') && warned) continue
+      $.ui.toast(w)
+    }
+    if (!ctx.isKnown && !warned) await $.store.set(warnedKey, true)
+    if (ctx.pack.words.length === 0 && settings.enabled && warned) await extendPack($, ctx, 'first use')
     refreshLesson(ctx, true)
     await save($, ctx)
     return next(e)
@@ -286,7 +300,7 @@ export const register: Register = (on, options) => {
     switch (verb.toLowerCase()) {
       case 'status':
       case '':
-        return { text: statusText(ctx.pack, ctx.progress, settings, info(ctx), now) }
+        return { text: statusText(ctx.pack, ctx.progress, settings, info(ctx), now, { isShipped: ctx.isShipped, known: ctx.isKnown, suggestion: ctx.suggestion }) }
       case 'words':
         return { text: wordsText(ctx.progress) }
       case 'pause':

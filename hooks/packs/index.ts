@@ -61,6 +61,38 @@ const ALIASES: Record<string, string> = {
 
 export type Language = { code: string; name: string; nativeName: string }
 
+/** Whether the typed language is one this plugin knows by name, alias or code. Unknown ones still work, but get a generated pack. */
+export function isKnownLanguage(input: string): boolean {
+  const key = input.trim().toLowerCase()
+  return Boolean(ALIASES[key] ?? NAMES[key])
+}
+
+function editDistance(a: string, b: string): number {
+  let row: number[] = Array.from({ length: b.length + 1 }, (_, i) => i)
+  for (let i = 1; i <= a.length; i++) {
+    const next: number[] = [i]
+    for (let j = 1; j <= b.length; j++) {
+      next.push(Math.min((row[j] ?? 0) + 1, (next[j - 1] ?? 0) + 1, (row[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1)))
+    }
+    row = next
+  }
+  return row[b.length] ?? 0
+}
+
+/** The known language name closest to a misspelling, when it is close enough to be a typo rather than a language we lack. */
+export function suggestLanguage(input: string): string | undefined {
+  const key = input.trim().toLowerCase()
+  if (key.length < 3 || isKnownLanguage(key)) return undefined
+  let best: { name: string; d: number } | undefined
+  for (const [alias, code] of Object.entries(ALIASES)) {
+    const d = editDistance(key, alias)
+    const name = NAMES[code]?.name
+    if (name && (!best || d < best.d)) best = { name, d }
+  }
+  // One slip for a short name, two (a swapped pair counts as two) once the name is six letters or more.
+  return best && best.d <= (key.length >= 6 ? 2 : 1) ? best.name : undefined
+}
+
 /** The language a person typed in the config, as a code and display names. Unknown names keep the name they typed. */
 export function resolveLanguage(input: string): Language {
   const key = input.trim().toLowerCase()

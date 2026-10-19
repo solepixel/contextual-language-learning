@@ -138,6 +138,36 @@ describe('contextlang in a session', () => {
     expect(out.text).toContain('nothing to export')
   })
 
+  test('a misspelled language warns and waits a session before generating a pack', { options: { target_language: 'Russain', birth_date: 'forty-five' } }, async ($, on) => {
+    mock.store(on)
+    mock.clock(on, { now: 1_000_000 })
+    bottoms(on)
+    const toasts: string[] = []
+    on('ui.toast', (_, e) => {
+      toasts.push(e.text)
+      return { value: undefined }
+    })
+    let modelCalls = 0
+    on('session.model', () => ({ value: 'test-model' }))
+    on('model.complete', () => {
+      modelCalls += 1
+      return { value: { isAnswered: false, reason: 'empty-reply', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    })
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+    expect(modelCalls).toBe(0)
+    expect(toasts.some(t => t.includes('"Russain" is not a language') && t.includes('Did you mean Russian?'))).toBe(true)
+    expect(toasts.some(t => t.includes('birth date "forty-five" is not readable'))).toBe(true)
+    const status = await $.command.run({ ...RUN, command: 'contextlang', args: 'status' })
+    expect(status.text).toContain('not a known language, did you mean Russian?')
+
+    // Next session: the warning is not repeated, and the pack is generated (here the model is offline, so the attempt fails cleanly).
+    toasts.length = 0
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+    expect(modelCalls).toBeGreaterThan(0)
+    expect(toasts.some(t => t.includes('is not a language'))).toBe(false)
+    expect(toasts.some(t => t.includes('could not build the Russain pack'))).toBe(true)
+  })
+
   test('does nothing when disabled', { options: { enabled: false } }, async ($, on) => {
     mock.store(on)
     mock.clock(on)

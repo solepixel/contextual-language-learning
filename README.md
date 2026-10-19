@@ -58,7 +58,7 @@ Requirements: Claude Code 2.1.303 or newer, the build this was written against (
 
 ## Settings
 
-All of these are rows in `/config`.
+All of these are rows in `/config`. Language and date are typed, not picked from a list, because any language works and the config rows cannot validate a date. The plugin checks them instead: a misspelled language or an unreadable date is pointed out when the session starts, and `/contextlang status` ends with every setting as the plugin read it.
 
 | Setting | Default | What it does |
 | --- | --- | --- |

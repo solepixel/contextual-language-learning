@@ -15,6 +15,8 @@ import {
   parseBirthDate,
   readSettings,
   resetWord,
+  settingsWarnings,
+  statusText,
   styleExample,
   styleTarget,
   tuning,
@@ -24,7 +26,7 @@ import type { Settings } from '../hooks/engine'
 import { es } from '../hooks/packs/es'
 import { ru } from '../hooks/packs/ru'
 import { generationEstimate, parseGenerated } from '../hooks/packs/generate'
-import { resolveLanguage, basePack, SHIPPED } from '../hooks/packs/index'
+import { resolveLanguage, basePack, SHIPPED, isKnownLanguage, suggestLanguage } from '../hooks/packs/index'
 import { packSource } from '../hooks/packs/source'
 
 const S: Settings = readSettings({})
@@ -288,12 +290,48 @@ describe('footer styling', () => {
   })
 })
 
+describe('settings feedback', () => {
+  test('a misspelled language and an unreadable birth date are pointed out, not silently dropped', async () => {
+    const s = readSettings({ target_language: 'Russain', birth_date: '45' })
+    expect(s.birthDate).toBe('')
+    expect(s.birthDateRaw).toBe('45')
+    const warnings = settingsWarnings(s, { known: false, suggestion: 'Russian' })
+    expect(warnings.length).toBe(2)
+    expect(warnings[0]).toContain('"Russain" is not a language')
+    expect(warnings[0]).toContain('Did you mean Russian?')
+    expect(warnings[1]).toContain('birth date "45" is not readable')
+    expect(settingsWarnings(readSettings({ target_language: 'Russian', birth_date: '1981-09-24' }), { known: true })).toEqual([])
+    expect(settingsWarnings(readSettings({}), { known: true })).toEqual([])
+  })
+
+  test('status echoes every setting as the plugin read it', async () => {
+    const now = Date.UTC(2026, 9, 19)
+    const good = readSettings({ target_language: 'russian', birth_date: '1981/09/24', pace: 'brisk', marker_style: 'code' })
+    const text = statusText(ru, newProgress('ru', 0), good, computeLevel(newProgress('ru', 0), ru, good, now), now, { isShipped: true, known: true })
+    expect(text).toContain('Settings as read: learn russian → Russian (ru, shipped pack) · from English · birth date 1981-09-24 (age 45) · pace brisk · marker code · pack model claude-sonnet-5-5')
+    const bad = readSettings({ target_language: 'Russain', birth_date: '45' })
+    const { pack } = basePack(resolveLanguage('Russain'))
+    const text2 = statusText(pack, newProgress('russain', 0), bad, computeLevel(newProgress('russain', 0), pack, bad, now), now, { isShipped: false, known: false, suggestion: 'Russian' })
+    expect(text2).toContain('(russain, not a known language, did you mean Russian?)')
+    expect(text2).toContain('birth date "45" is not readable, use YYYY-MM-DD')
+    const unset = readSettings({})
+    expect(statusText(es, newProgress('es', 0), unset, computeLevel(newProgress('es', 0), es, unset, now), now)).toContain('birth date not set')
+  })
+})
+
 describe('packs', () => {
   test('language names resolve and the Spanish pack has no duplicate keys', async () => {
     expect(resolveLanguage('spanish').code).toBe('es')
     expect(resolveLanguage('Español').code).toBe('es')
     expect(resolveLanguage('Korean').nativeName).toBe('한국어')
     expect(resolveLanguage('Klingon').code).toBe('klingon')
+    expect(isKnownLanguage('Russian')).toBe(true)
+    expect(isKnownLanguage('ru')).toBe(true)
+    expect(isKnownLanguage('Russain')).toBe(false)
+    expect(suggestLanguage('Russain')).toBe('Russian')
+    expect(suggestLanguage('Japnese')).toBe('Japanese')
+    expect(suggestLanguage('Klingon')).toBeUndefined()
+    expect(suggestLanguage('Russian')).toBeUndefined()
     const keys = es.words.map(w => w.t)
     expect(new Set(keys).size).toBe(keys.length)
     expect(es.words.length).toBeGreaterThan(400)

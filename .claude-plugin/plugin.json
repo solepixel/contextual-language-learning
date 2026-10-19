@@ -1,6 +1,6 @@
 {
   "name": "contextlang",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Teaches you a language over time by weaving a few words, then phrases, then whole sentences of it into Claude's replies. No lessons, no study mode: it just works.",
   "author": {
     "name": "solepixel"

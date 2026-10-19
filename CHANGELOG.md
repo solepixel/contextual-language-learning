@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 (2026-10-19)
+- A misspelled language is pointed out at session start ("Russain" is not a language it knows. Did you mean Russian?) and no pack is generated for it until the next session, so a typo no longer costs tokens.
+- An unreadable birth date is pointed out at session start with the accepted format, instead of being silently ignored.
+- `/contextlang status` now ends with a "Settings as read" line: the language as typed and what it resolved to, whether the pack is shipped or generated, birth date and age, pace, marker and pack model.
+
 ## 0.2.1 (2026-10-19)
 - The script lesson now introduces one new letter per reply instead of three. Letters that are due for review come back alongside it as just their sound, so the footer stays short and the repeats are what you see most.
 
