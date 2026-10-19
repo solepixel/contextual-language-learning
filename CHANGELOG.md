@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-19)
+- Eight more languages ship as curated packs, each mirroring the Spanish concept list so every pack covers the same ground: French, German, Italian, Portuguese, Japanese, Korean, Mandarin and Russian. The non-Latin packs carry a reading on every entry and their own sound and structure notes. Nobody generates these nine.
+- `/contextlang export [path]` writes the generated pack for your language as a source file in the shape of the shipped packs, ready to review and contribute.
+- A pack now belongs to a (language, native language) pair: shipped packs are glossed in English and serve English speakers; anyone else gets a generated pack. Packs stored under the old key are still read for English speakers.
+- Generating a pack tells you which model is building it and roughly how many tokens it takes. A new `pack model` setting picks that model (Sonnet by default, `session` for the session's own); if it cannot answer, the session model is tried.
+- Fix: a few command replies said "ctx.pack" and "ctx.progress" instead of "pack" and "progress".
+- Fix: a language whose pack had no sounds yet (one still being generated) started at level 5.71 with 20 free points instead of 0. Progress and level were already kept per language; a test now pins that down.
+- The age setting is now a date of birth (`birth_date`, `YYYY-MM-DD`), so your age is worked out each session instead of going stale. The old `age` number is no longer read; enter your date of birth in `/config`.
 - The footer line styles its target-language words with the marker style (bold by default) without brackets: `In Spanish, **ñ** sounds like..., as in **año** (year)`.
 - Fix: the report tool returned an object result, which the engine refuses; it now returns its summary as text.
 - Marker styles: `bold` (new default), `italic`, `code` and plain `brackets` for the side-by-side word, so it stands out in the terminal. Crediting now reads a code-styled marker inside inline code.

@@ -1,6 +1,6 @@
 {
   "name": "contextlang",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Teaches you a language over time by weaving a few words, then phrases, then whole sentences of it into Claude's replies. No lessons, no study mode: it just works.",
   "author": {
     "name": "solepixel"
@@ -10,7 +10,7 @@
     "target_language": {
       "type": "string",
       "title": "Language to learn",
-      "description": "The language ContextLang weaves into replies, by name (Spanish, French, Japanese, Korean, ...). Spanish ships with a curated word pack; other languages get a pack generated on first use.",
+      "description": "The language ContextLang weaves into replies, by name (Spanish, French, Japanese, Korean, ...). Spanish, French, German, Italian, Portuguese, Japanese, Korean, Mandarin and Russian ship with curated word packs; other languages get a pack generated on first use.",
       "default": "Spanish"
     },
     "native_language": {
@@ -19,11 +19,11 @@
       "description": "The language you already speak. Replies stay in this language until the target language has earned its way in.",
       "default": "English"
     },
-    "age": {
-      "type": "number",
-      "title": "Your age (optional)",
-      "description": "Leave at 0 to skip. Younger and older learners get a gentler density and more repetition, which is what the spacing research supports.",
-      "default": 0
+    "birth_date": {
+      "type": "string",
+      "title": "Your date of birth (optional)",
+      "description": "YYYY-MM-DD, or leave blank to skip. Your age is worked out from it, so it never goes stale. Younger and older learners get a gentler density and more repetition, which is what the spacing research supports.",
+      "default": ""
     },
     "pace": {
       "type": "string",
@@ -38,6 +38,12 @@
       "description": "How a translated word stands out: bold gives 'questions **[preguntas]**'; italic gives 'questions *[preguntas]*'; code gives 'questions `[preguntas]`' (the terminal colors inline code); brackets gives plain 'questions [preguntas]'.",
       "options": ["bold", "italic", "code", "brackets"],
       "default": "bold"
+    },
+    "pack_model": {
+      "type": "string",
+      "title": "Pack model",
+      "description": "The model that builds the word pack for a language without a shipped one: about 6k tokens for the first batch and 5k for each later one, a few times over the first weeks. \"session\" uses whatever model the session runs.",
+      "default": "claude-sonnet-5-5"
     },
     "show_band": {
       "type": "boolean",
