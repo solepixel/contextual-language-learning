@@ -1,4 +1,4 @@
-# contextlang
+# ContextLang
 
 A [Claude Code](https://code.claude.com) plugin that teaches you a language while you work. There is no lesson mode and nothing to schedule. Claude keeps answering in your language, and a little of the language you are learning rides along in each reply: one or two words at first, side by side with their meaning, then bare words you have seen enough times, then short phrases, then sentences, until most of the reply is in the new language. Progress is tracked per word on a spaced-repetition schedule and kept between sessions.
 
