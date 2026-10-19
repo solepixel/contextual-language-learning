@@ -24,7 +24,7 @@ export function generatePrompt(r: GenerateRequest): string {
   const excludePhrases = r.havePhrases.length > 0 ? `\nPhrases already covered: ${r.havePhrases.slice(-80).join(' | ')}` : ''
   const reading = r.script !== 'latin' ? ` Every word and phrase also carries "reading": its romanisation (romaji for Japanese, revised romanisation for Korean, pinyin with tone marks for Mandarin, standard transliteration otherwise).` : ''
   const alphabet = r.wantAlphabet
-    ? `\n"alphabet": 10 to 16 entries, each { "symbol", "sound", "example" }, covering the letters, digraphs and sounds of ${r.languageName} a speaker of ${r.native} most needs pointed out (silent letters, sounds ${r.native} lacks, stress rules), in plain words a learner can act on.`
+    ? `\n"alphabet": 10 to 16 entries, each { "symbol", "sound", "example" }, covering the letters, digraphs and sounds of ${r.languageName} a speaker of ${r.native} most needs pointed out (silent letters, sounds ${r.native} lacks, stress rules), in plain words a learner can act on. Write "example" as target-language words with their meaning in parentheses, comma separated, such as "año (year), mañana (tomorrow)", or as a word followed by is and its sound in quotes, such as 'hola is "oh-la"'.`
     : `\n"alphabet": [].`
   return [
     `You are compiling a vocabulary pack for ContextLang, which teaches ${r.languageName} (${r.nativeName}) to a speaker of ${r.native} by weaving words into everyday conversation with a coding assistant.`,

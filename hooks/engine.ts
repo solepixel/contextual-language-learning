@@ -412,7 +412,7 @@ function pickFooter(p: Progress, pack: Pack, s: Settings, info: LevelInfo, turn:
     })
     const batch = due.slice(0, info.phase === 'script' ? 3 : 1)
     if (batch.length > 0) {
-      const text = batch.map(a => `${a.symbol} is "${a.sound}"${a.example ? `, as in ${a.example}` : ''}`).join('; ')
+      const text = batch.map(a => `${styleTarget(a.symbol, s)} is "${a.sound}"${a.example ? `, as in ${styleExample(a.example, s)}` : ''}`).join('; ')
       return { kind: 'script', key: batch.map(a => a.symbol).join('|'), text: `${pack.name} script: ${text}.` }
     }
   }
@@ -422,7 +422,7 @@ function pickFooter(p: Progress, pack: Pack, s: Settings, info: LevelInfo, turn:
   })
   const a = alphabetDue[0]
   if (a && (info.phase === 'sounds' || info.phase === 'script' || turn % 2 === 0 || pack.phrases.length === 0)) {
-    return { kind: 'alphabet', key: a.symbol, text: `In ${pack.name}, ${a.symbol} ${a.sound}${a.example ? `, as in ${a.example}` : ''}.` }
+    return { kind: 'alphabet', key: a.symbol, text: alphabetFooter(pack, a, s) }
   }
   const phraseDue = pack.phrases.filter(ph => ph.minLevel <= Math.max(info.level, 1)).filter(ph => {
     const st = p.phrases[ph.t]
@@ -432,10 +432,55 @@ function pickFooter(p: Progress, pack: Pack, s: Settings, info: LevelInfo, turn:
   if (ph) {
     const reading = ph.reading ? ` (${ph.reading})` : ''
     const note = ph.note ? ` ${ph.note}` : ''
-    return { kind: 'phrase', key: ph.t, text: `"${ph.t}"${reading} means "${ph.n}".${note}` }
+    return { kind: 'phrase', key: ph.t, text: `${styleTarget(ph.t, s)}${reading} means "${ph.n}".${note}` }
   }
-  if (a) return { kind: 'alphabet', key: a.symbol, text: `In ${pack.name}, ${a.symbol} ${a.sound}${a.example ? `, as in ${a.example}` : ''}.` }
+  if (a) return { kind: 'alphabet', key: a.symbol, text: alphabetFooter(pack, a, s) }
   return undefined
+}
+
+function alphabetFooter(pack: Pack, a: AlphabetItem, s: Settings): string {
+  // A one-token symbol (ñ, ll, h) is the letter itself; a phrase like "g before e or i" stays plain.
+  const symbol = /\s/.test(a.symbol) ? a.symbol : styleTarget(a.symbol, s)
+  return `In ${pack.name}, ${symbol} ${a.sound}${a.example ? `, as in ${styleExample(a.example, s)}` : ''}.`
+}
+
+/** Marks a word of the target language the way the marker style asks, without the brackets a side-by-side word gets. */
+export function styleTarget(text: string, s: Settings): string {
+  const wrap = MARKER_WRAP[s.marker]
+  return wrap ? `${wrap}${text}${wrap}` : text
+}
+
+/**
+ * Styles the target-language words of a free-text example such as
+ * 'año (year), mañana (tomorrow)' or 'hola is "oh-la"': each top-level
+ * comma-separated chunk's leading words, up to a parenthesis or " is ", are
+ * the target language; the gloss or the pronunciation after them stays plain.
+ */
+export function styleExample(example: string, s: Settings): string {
+  if (!MARKER_WRAP[s.marker]) return example
+  const chunks: string[] = []
+  let depth = 0
+  let quoted = false
+  let start = 0
+  for (let i = 0; i < example.length; i++) {
+    const c = example[i]
+    if (c === '"') quoted = !quoted
+    else if (c === '(') depth++
+    else if (c === ')') depth = Math.max(0, depth - 1)
+    else if (c === ',' && depth === 0 && !quoted) {
+      chunks.push(example.slice(start, i))
+      start = i + 1
+    }
+  }
+  chunks.push(example.slice(start))
+  return chunks
+    .map(chunk => {
+      const lead = chunk.match(/^(\s*)(.*?)(\s+is\s+"|\s+\(|\s*$)/s)
+      if (!lead || !lead[2]) return chunk
+      const [, pad, word, rest] = lead
+      return `${pad}${styleTarget(word, s)}${rest}${chunk.slice(lead[0].length)}`
+    })
+    .join(',')
 }
 
 // ---------------------------------------------------------------- crediting

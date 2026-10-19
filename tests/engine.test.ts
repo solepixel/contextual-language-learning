@@ -13,6 +13,8 @@ import {
   newProgress,
   readSettings,
   resetWord,
+  styleExample,
+  styleTarget,
   tuning,
   turnNote,
 } from '../hooks/engine'
@@ -223,6 +225,23 @@ describe('level and prompt text', () => {
     expect(bold).toContain('**[sí]**')
     expect(turnNote(plan, es, { ...S, marker: 'italic' }, [], [])).toContain('*[sí]*')
     expect(turnNote(plan, es, { ...S, marker: 'code' }, [], [])).toContain('`[sí]`')
+  })
+})
+
+describe('footer styling', () => {
+  test('target-language words in a footer carry the marker style without brackets', async () => {
+    const bold = { ...S, marker: 'bold' as const }
+    expect(styleTarget('gracias', bold)).toBe('**gracias**')
+    expect(styleTarget('gracias', { ...S, marker: 'brackets' })).toBe('gracias')
+    expect(styleExample('año (year), mañana (tomorrow)', bold)).toBe('**año** (year), **mañana** (tomorrow)')
+    expect(styleExample('hola is "oh-la", hecho is "eh-cho"', bold)).toBe('**hola** is "oh-la", **hecho** is "eh-cho"')
+    expect(styleExample('casa, mesa, sí', bold)).toBe('**casa**, **mesa**, **sí**')
+    expect(styleExample('らく (raku, easy)', { ...S, marker: 'italic' })).toBe('*らく* (raku, easy)')
+    expect(styleExample('vous avez is "voo-za-vay"', { ...S, marker: 'code' })).toBe('`vous avez` is "voo-za-vay"')
+    expect(styleExample('año (year), mañana (tomorrow)', { ...S, marker: 'brackets' })).toBe('año (year), mañana (tomorrow)')
+    const p = newProgress('es', 0)
+    const plan = makePlan(p, es, bold, 0)
+    expect(plan.footer?.text).toContain('**casa**')
   })
 })
 
