@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fix: the report tool returned an object result, which the engine refuses; it now returns its summary as text.
 - Marker styles: `bold` (new default), `italic`, `code` and plain `brackets` for the side-by-side word, so it stands out in the terminal. Crediting now reads a code-styled marker inside inline code.
 
 ## 0.1.0

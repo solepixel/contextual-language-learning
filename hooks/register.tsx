@@ -230,7 +230,7 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: REPORT_TOOL }, async ($, e) => {
-    if (!ctx.progress) return { result: { ok: false }, text: 'ContextLang has no progress loaded.' }
+    if (!ctx.progress) return { result: 'ContextLang has no progress loaded.' }
     const now = await $.clock.now()
     const used: UsageReport[] = []
     for (const u of Array.isArray(e.used) ? e.used : []) {
@@ -246,7 +246,8 @@ export const register: Register = (on, options) => {
     if (outcome.missed.length) parts.push(`marked for review: ${outcome.missed.join(', ')}`)
     if (outcome.forgot.length) parts.push(`back to side by side: ${outcome.forgot.join(', ')}`)
     const text = parts.length ? `Recorded (${parts.join('; ')}). Now write the final reply.` : 'Nothing matched a tracked word; recorded. Now write the final reply.'
-    return { result: { ok: true, ...outcome }, text }
+    // A plugin tool's result must be a string (or an array of content blocks); an object is refused by the engine.
+    return { result: text }
   })
 
   on('command.run', { command: 'contextlang' }, async ($, e) => {

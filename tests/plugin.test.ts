@@ -71,8 +71,8 @@ describe('contextlang in a session', () => {
 
     const ran = await $.tool.call({ tool: 'mcp__contextlang__report', used: [{ text: 'hola', correct: true }], forgot: ['hola'] })
     expect(ran.deny).toBeUndefined()
-    expect(ran.text).toContain('credited as used correctly: hola')
-    expect(ran.text).toContain('back to side by side: hola')
+    expect(String(ran.result)).toContain('credited as used correctly: hola')
+    expect(String(ran.result)).toContain('back to side by side: hola')
     const listed = await $.command.run({ ...RUN, command: 'contextlang', args: 'words' })
     expect(listed.text).toContain('Side by side (1)')
     expect(listed.text).toContain('used 1')
