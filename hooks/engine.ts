@@ -30,7 +30,7 @@ export type Pack = {
 // ---------------------------------------------------------------- settings
 
 export type Pace = 'gentle' | 'steady' | 'brisk'
-export type MarkerStyle = 'brackets' | 'bold'
+export type MarkerStyle = 'brackets' | 'bold' | 'italic' | 'code'
 
 export type Settings = {
   target: string
@@ -47,7 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   native: 'English',
   age: 0,
   pace: 'steady',
-  marker: 'brackets',
+  marker: 'bold',
   showBand: false,
   enabled: true,
 }
@@ -57,13 +57,13 @@ export function readSettings(options: Readonly<Record<string, unknown>>): Settin
   const num = (k: string, d: number) => (typeof options[k] === 'number' && Number.isFinite(options[k]) ? (options[k] as number) : d)
   const bool = (k: string, d: boolean) => (typeof options[k] === 'boolean' ? (options[k] as boolean) : d)
   const pace = str('pace', 'steady')
-  const marker = str('marker_style', 'brackets')
+  const marker = str('marker_style', 'bold')
   return {
     target: str('target_language', DEFAULT_SETTINGS.target),
     native: str('native_language', DEFAULT_SETTINGS.native),
     age: Math.max(0, Math.round(num('age', 0))),
     pace: pace === 'gentle' || pace === 'brisk' ? pace : 'steady',
-    marker: marker === 'bold' ? 'bold' : 'brackets',
+    marker: marker === 'brackets' || marker === 'italic' || marker === 'code' ? marker : 'bold',
     showBand: bool('show_band', false),
     enabled: bool('enabled', true),
   }
@@ -464,7 +464,12 @@ export function matchesForm(written: string, form: string): boolean {
 }
 
 export function stripCode(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`\n]*`/g, ' ')
+  return stripFenced(text).replace(/`[^`\n]*`/g, ' ')
+}
+
+/** Fenced code blocks only: inline code stays, so a code-styled marker like `[hola]` is still seen. */
+export function stripFenced(text: string): string {
+  return text.replace(/```[\s\S]*?```/g, ' ')
 }
 
 export function bracketed(text: string): string[] {
@@ -501,7 +506,7 @@ export function creditAnswer(p: Progress, plan: Plan | undefined, answer: string
   const text = stripCode(answer)
   if (!text.trim()) return credit
 
-  const marks = bracketed(text)
+  const marks = bracketed(stripFenced(answer))
   const seen = new Set<string>()
   const creditAnnotated = (w: WordState) => {
     if (seen.has(w.t)) return
@@ -683,7 +688,24 @@ export function detectUsed(prompt: string, p: Progress): string[] {
 
 export function formatAnnotated(native: string, target: string, s: Settings, reading?: string): string {
   const inner = reading ? `${target}, ${reading}` : target
-  return s.marker === 'bold' ? `${native} **[${inner}]**` : `${native} [${inner}]`
+  const wrap = MARKER_WRAP[s.marker]
+  return `${native} ${wrap}[${inner}]${wrap}`
+}
+
+const MARKER_WRAP: Record<MarkerStyle, string> = { brackets: '', bold: '**', italic: '*', code: '`' }
+
+/** How the lesson describes the marker, so the model writes it the way the setting asks. */
+export function markerRule(s: Settings): string {
+  switch (s.marker) {
+    case 'bold':
+      return 'in square brackets, the whole bracket in bold'
+    case 'italic':
+      return 'in square brackets, the whole bracket in italics'
+    case 'code':
+      return 'in square brackets wrapped in backticks as inline code (this is the one place inline code is allowed)'
+    default:
+      return 'in square brackets'
+  }
 }
 
 function phaseGuidance(phase: Phase, pack: Pack, native: string): string {
@@ -722,7 +744,7 @@ export function lessonSection(pack: Pack, p: Progress, s: Settings, info: LevelI
     `Only in the final reply to the person, the one that ends your turn. Never in progress notes while you work, tool inputs, commit messages, code, commands, file paths, identifiers, URLs, quoted error text, or anything they might copy and run. Never inside code blocks or inline code.`,
     ``,
     `## How`,
-    `- A side-by-side word is written as the ${native} word followed by the ${pack.name} word in square brackets: "${sample}". Inflect the ${pack.name} word to fit (plural, gender, verb form). Put it where the ${native} word naturally occurs; if a planned word would not fit the reply, skip it rather than force it.`,
+    `- A side-by-side word is written as the ${native} word followed by the ${pack.name} word ${markerRule(s)}: "${sample}". Inflect the ${pack.name} word to fit (plural, gender, verb form). Put it where the ${native} word naturally occurs; if a planned word would not fit the reply, skip it rather than force it.`,
     `- A bare word is written in ${pack.name} alone, in italics, in place of its ${native} word: it is one the person has seen enough times. Use bare words wherever their meaning comes up.`,
     `- ${phaseGuidance(info.phase, pack, native)}`,
     `- When the turn plan gives a footer, end the reply with one line that starts with "ContextLang:" followed by the footer text, verbatim. No footer line otherwise.`,
@@ -745,7 +767,7 @@ export function turnNote(plan: Plan, pack: Pack, s: Settings, used: string[], fo
       const note = w.note ? ` (${w.note})` : ''
       return `${w.n} → ${formatAnnotated(w.n, w.t, s, w.reading).slice(w.n.length + 1)}${note}`
     })
-    lines.push(`Side by side (${s.native} word, then the ${pack.name} word in brackets), where the meaning naturally occurs: ${items.join('; ')}.`)
+    lines.push(`Side by side (${s.native} word, then the ${pack.name} word ${markerRule(s)}), where the meaning naturally occurs: ${items.join('; ')}.`)
   }
   if (plan.bare.length > 0) lines.push(`Bare, in italics, no translation: ${plan.bare.map(w => `${w.t} (${w.n})`).join(', ')}.`)
   if (plan.footer) lines.push(`Footer, as the last line of the reply, verbatim: ContextLang: ${plan.footer.text}`)

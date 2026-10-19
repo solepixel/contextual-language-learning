@@ -31,7 +31,7 @@ describe('contextlang in a session', () => {
     const entered = await $.prompt.submit({ ...SUBMIT, text: 'Can you add a test for the parser?' })
     const note = entered.context?.find(c => c.startsWith('[ContextLang turn plan]'))
     expect(note).toBeDefined()
-    expect(note).toContain('yes → [sí]')
+    expect(note).toContain('yes → **[sí]**')
     expect(note).toContain('ContextLang: ')
   })
 

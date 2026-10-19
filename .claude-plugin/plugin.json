@@ -35,9 +35,9 @@
     "marker_style": {
       "type": "string",
       "title": "Marker style",
-      "description": "How a translated word is shown: brackets gives 'questions [preguntas]'; bold gives 'questions **[preguntas]**' so it stands out in the terminal.",
-      "options": ["brackets", "bold"],
-      "default": "brackets"
+      "description": "How a translated word stands out: bold gives 'questions **[preguntas]**'; italic gives 'questions *[preguntas]*'; code gives 'questions `[preguntas]`' (the terminal colors inline code); brackets gives plain 'questions [preguntas]'.",
+      "options": ["bold", "italic", "code", "brackets"],
+      "default": "bold"
     },
     "show_band": {
       "type": "boolean",

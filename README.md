@@ -53,7 +53,7 @@ All of these are rows in `/config`.
 | Your language | English | The language replies stay in until the new one has earned its way in. |
 | Your age | 0 (unset) | Under 10 and over 60 get a lighter density and more repetition per word; teens a little of each. |
 | Pace | steady | `gentle`, `steady` or `brisk`: how quickly new words arrive and how dense a reply gets. |
-| Marker style | brackets | `questions [preguntas]` or `questions **[preguntas]**`. |
+| Marker style | bold | How the translated word stands out: `bold` gives **[preguntas]**, `italic` gives *[preguntas]*, `code` gives `[preguntas]` (colored in the terminal), `brackets` gives plain [preguntas]. |
 | Show progress band | off | A one-line band above the prompt with your level and word count. |
 | Enabled | on | Turn it off without losing progress. |
 
