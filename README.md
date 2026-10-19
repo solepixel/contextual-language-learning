@@ -41,6 +41,19 @@ Install it:
 
 Then open `/config`, find the ContextLang rows, and set the language you want to learn. Spanish is the default.
 
+To receive new releases automatically, open `/plugin`, go to **Marketplaces**, select `contextual-language-learning` and choose **Enable auto-update**. Claude Code then refreshes the plugin in the background after a session starts whenever a new version is published. Without auto-update, pull a release by hand:
+
+```
+/plugin marketplace update contextual-language-learning
+```
+
+Developing it on this machine? Add the working copy as the marketplace instead, and installed sessions read your edits straight from the folder after `/reload-plugins`, with no update step:
+
+```
+/plugin marketplace add ~/Projects/contextual-language-learning
+/plugin install contextlang
+```
+
 Requirements: Claude Code 2.1.303 or newer, the build this was written against (the plugin is a hooks module, not a shell-command hook, and that API is early access).
 
 ## Settings
@@ -128,6 +141,10 @@ claude plugin test .       # tests/*.test.ts against the engine's own test kit
 ```
 
 Type-check with `tsc -p .` once the engine has laid its declarations in `.claude-plugin/types/` (it does so whenever it loads the plugin from this folder).
+
+### Releasing
+
+Installed copies update only when the `version` in `.claude-plugin/plugin.json` changes, so a push with the same version reaches nobody. To release: move the Unreleased notes in `CHANGELOG.md` under the new version, bump `version` in `plugin.json`, commit and push. Users with auto-update on get it at their next session start; others run `/plugin marketplace update contextual-language-learning`.
 
 ## License
 
