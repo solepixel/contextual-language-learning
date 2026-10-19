@@ -1,0 +1,245 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import {
+  applyReport,
+  bracketed,
+  computeLevel,
+  creditAnswer,
+  detectForgotten,
+  detectUsed,
+  lessonSection,
+  makePlan,
+  matchesForm,
+  newProgress,
+  readSettings,
+  resetWord,
+  tuning,
+  turnNote,
+} from '../hooks/engine'
+import type { Settings } from '../hooks/engine'
+import { es } from '../hooks/packs/es'
+import { parseGenerated } from '../hooks/packs/generate'
+import { resolveLanguage, basePack } from '../hooks/packs/index'
+
+const S: Settings = readSettings({})
+const HOUR = 3600_000
+
+describe('settings and tuning', () => {
+  test('defaults fill in and bad values fall back', async () => {
+    const s = readSettings({ target_language: ' French ', pace: 'turbo', age: -4, marker_style: 'bold', show_band: true })
+    expect(s.target).toBe('French')
+    expect(s.pace).toBe('steady')
+    expect(s.age).toBe(0)
+    expect(s.marker).toBe('bold')
+    expect(s.showBand).toBe(true)
+  })
+
+  test('young and old learners get more repetition and a lighter density', async () => {
+    const adult = tuning({ ...S, age: 30 })
+    const child = tuning({ ...S, age: 8 })
+    const elder = tuning({ ...S, age: 70 })
+    expect(child.density).toBeLessThan(adult.density)
+    expect(elder.density).toBeLessThan(adult.density)
+    expect(child.promoteAfter).toBeGreaterThan(adult.promoteAfter)
+    expect(tuning({ ...S, pace: 'brisk' }).density).toBeGreaterThan(adult.density)
+  })
+})
+
+describe('planning', () => {
+  test('a fresh learner gets one side-by-side word and a sounds footer', async () => {
+    const p = newProgress('es', 0)
+    const plan = makePlan(p, es, S, 0)
+    expect(plan.turn).toBe(1)
+    expect(plan.annotate.length).toBe(1)
+    expect(plan.annotate[0]?.t).toBe('sí')
+    expect(plan.bare.length).toBe(0)
+    expect(plan.footer?.kind).toBe('alphabet')
+    expect(Object.keys(p.words)).toEqual(['sí'])
+    const plan2 = makePlan(p, es, S, 0)
+    expect(plan2.annotate.length).toBeLessThanOrEqual(2)
+  })
+
+  test('tech words wait for level 25', async () => {
+    const p = newProgress('es', 0)
+    for (let i = 0; i < 40; i += 1) {
+      const plan = makePlan(p, es, S, i * HOUR * 24)
+      creditAnswer(p, plan, plan.annotate.map(w => `${w.n} [${w.t}]`).join(' ') + '\n\nContextLang: x', S, i * HOUR * 24)
+    }
+    expect(Object.keys(p.words).some(t => es.words.find(w => w.t === t)?.tier === 'tech')).toBe(false)
+    p.levelOverride = 30
+    for (let i = 40; i < 80; i += 1) {
+      const plan = makePlan(p, es, S, i * HOUR * 24)
+      creditAnswer(p, plan, plan.annotate.map(w => `${w.n} [${w.t}]`).join(' '), S, i * HOUR * 24)
+    }
+    expect(Object.keys(p.words).some(t => es.words.find(w => w.t === t)?.tier === 'tech')).toBe(true)
+  })
+
+  test('density grows with level', async () => {
+    const low = newProgress('es', 0)
+    const high = newProgress('es', 0)
+    high.levelOverride = 40
+    expect(makePlan(high, es, S, 0).annotate.length).toBeGreaterThan(makePlan(low, es, S, 0).annotate.length)
+  })
+})
+
+describe('crediting the reply', () => {
+  test('marked words are credited, code is ignored, and words are promoted after enough spaced exposures', async () => {
+    const p = newProgress('es', 0)
+    const tune = tuning(S)
+    let now = 0
+    let promotedAt = -1
+    for (let i = 0; i < 60; i += 1) {
+      now += 6 * HOUR
+      const plan = makePlan(p, es, S, now)
+      const reply = plan.annotate.map(w => `${w.n} [${w.t}]`).join(', ') + '\n```js\nconst x = "[gracias]"\n```\n' + (plan.footer ? `\nContextLang: ${plan.footer.text}` : '')
+      const credit = creditAnswer(p, plan, reply, S, now)
+      expect(credit.annotated).toEqual(plan.annotate.map(w => w.t))
+      if (credit.promoted.includes('sí') && promotedAt < 0) promotedAt = i
+    }
+    const si = p.words['sí']
+    expect(si).toBeDefined()
+    expect(si?.stage === 'bare' || si?.stage === 'known').toBe(true)
+    expect(si?.seen).toBeGreaterThanOrEqual(tune.promoteAfter)
+    expect(promotedAt).toBeGreaterThan(tune.promoteAfter - 2)
+    expect(p.turns).toBe(60)
+  })
+
+  test('a word is not due again in the same hour once it is past its first boxes', async () => {
+    const p = newProgress('es', 0)
+    const plan1 = makePlan(p, es, S, 0)
+    creditAnswer(p, plan1, 'yes [sí]', S, 0)
+    const w = p.words['sí']
+    expect(w?.dueTurn).toBe(3)
+    w!.box = 3
+    creditAnswer(p, { ...plan1, turn: 2 }, 'yes [sí]', S, 0)
+    expect(w?.dueAt).toBeGreaterThan(0)
+  })
+
+  test('bare words are credited when they appear plainly, and become known', async () => {
+    const p = newProgress('es', 0)
+    p.words['hola'] = { t: 'hola', n: 'hello', stage: 'bare', box: 2, seen: 8, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    let now = 0
+    for (let i = 0; i < 80; i += 1) {
+      now += 48 * HOUR
+      const plan = makePlan(p, es, S, now)
+      if (plan.bare.some(b => b.t === 'hola')) creditAnswer(p, plan, '_Hola_! Here is the plan.', S, now)
+      else creditAnswer(p, plan, 'nothing today', S, now)
+    }
+    expect(p.words['hola']?.stage).toBe('known')
+  })
+
+  test('markdown links and list numbers are not read as markers', async () => {
+    expect(bracketed('see [the docs](https://x) and [1] and well [bien]')).toEqual(['1', 'bien'])
+  })
+
+  test('inflections match the dictionary form', async () => {
+    expect(matchesForm('preguntas', 'pregunta')).toBe(true)
+    expect(matchesForm('**[Preguntas]**', 'pregunta')).toBe(true)
+    expect(matchesForm('nueva', 'nuevo')).toBe(true)
+    expect(matchesForm('respuesta', 'pregunta')).toBe(false)
+    expect(matchesForm('no', 'nota')).toBe(false)
+  })
+
+  test('the footer only counts when the reply carries the ContextLang line', async () => {
+    const p = newProgress('es', 0)
+    const plan = makePlan(p, es, S, 0)
+    creditAnswer(p, plan, 'yes [sí]', S, 0)
+    expect(Object.keys(p.alphabet).length).toBe(0)
+    const plan2 = makePlan(p, es, S, 0)
+    creditAnswer(p, plan2, `yes [sí]\n\n**ContextLang:** ${plan2.footer?.text}`, S, 0)
+    expect(Object.keys(p.alphabet).length).toBe(1)
+  })
+})
+
+describe('the learner writes Spanish', () => {
+  test('correct use counts as production, mistakes pull the word back, forgetting resets it', async () => {
+    const p = newProgress('es', 0)
+    p.words['gracias'] = { t: 'gracias', n: 'thanks', stage: 'known', box: 5, seen: 8, bareSeen: 5, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    p.words['pregunta'] = { t: 'pregunta', n: 'question', stage: 'bare', box: 3, seen: 8, bareSeen: 1, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    const out = applyReport(p, es, [{ text: 'gracias', correct: true }, { text: 'una preguntas', correct: false }], ['hola'], 0)
+    expect(out.credited).toEqual(['gracias'])
+    expect(p.words['gracias']?.produced).toBe(1)
+    expect(out.missed).toEqual(['pregunta'])
+    expect(p.words['pregunta']?.misses).toBe(1)
+    expect(out.forgot).toEqual(['hola'])
+    expect(p.words['hola']?.stage).toBe('annotated')
+    const g = p.words['gracias']!
+    g.stage = 'bare'
+    resetWord(g, 1, 0)
+    expect(g.stage).toBe('annotated')
+    expect(g.seen).toBe(4)
+  })
+
+  test('the prompt itself reveals forgotten and used words', async () => {
+    const p = newProgress('es', 0)
+    p.words['ahora'] = { t: 'ahora', n: 'now', stage: 'bare', box: 3, seen: 8, bareSeen: 1, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    p.words['hola'] = { t: 'hola', n: 'hello', stage: 'bare', box: 3, seen: 8, bareSeen: 1, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    expect(detectForgotten('hola! wait, what does "ahora" mean?', p)).toEqual(['ahora'])
+    expect(detectForgotten('ahora please fix the bug', p)).toEqual([])
+    expect(detectUsed('Hola, can you fix it ahora? `hola` in code does not count', p).sort()).toEqual(['ahora', 'hola'])
+  })
+})
+
+describe('level and prompt text', () => {
+  test('level rises with mastery, stays within 0..100, and the phase follows it', async () => {
+    const p = newProgress('es', 0)
+    const start = computeLevel(p, es, S)
+    expect(start.level).toBe(0)
+    expect(start.phase).toBe('sounds')
+    for (const w of es.words.slice(0, 200)) p.words[w.t] = { t: w.t, n: w.n, stage: 'known', box: 6, seen: 8, bareSeen: 5, produced: 2, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    const later = computeLevel(p, es, S)
+    expect(later.level).toBeGreaterThan(15)
+    expect(later.level).toBeLessThan(40)
+    expect(later.phase).toBe('phrases')
+    p.levelOverride = 95
+    expect(computeLevel(p, es, S).phase).toBe('fluent')
+  })
+
+  test('a Japanese learner starts in the script phase', async () => {
+    const { pack } = basePack(resolveLanguage('Japanese'))
+    const p = newProgress('ja', 0)
+    expect(pack.script).toBe('kana')
+    expect(computeLevel(p, pack, S).phase).toBe('script')
+    const plan = makePlan(p, pack, S, 0)
+    expect(plan.footer?.kind).toBe('script')
+    expect(plan.footer?.key.split('|').length).toBe(3)
+  })
+
+  test('the lesson and the turn note say what the model must do', async () => {
+    const p = newProgress('es', 0)
+    const plan = makePlan(p, es, S, 0)
+    const lesson = lessonSection(es, p, S, computeLevel(p, es, S))
+    expect(lesson).toContain('questions [preguntas]')
+    expect(lesson).toContain('mcp__contextlang__report')
+    expect(lesson).toContain('Only in the final reply')
+    const note = turnNote(plan, es, S, ['hola'], ['ahora'])
+    expect(note).toContain('[ContextLang turn plan]')
+    expect(note).toContain('yes → [sí]')
+    expect(note).toContain('ContextLang: ')
+    expect(note).toContain('hola')
+    expect(note).toContain('ahora')
+    const bold = turnNote(plan, es, { ...S, marker: 'bold' }, [], [])
+    expect(bold).toContain('**[sí]**')
+  })
+})
+
+describe('packs', () => {
+  test('language names resolve and the Spanish pack has no duplicate keys', async () => {
+    expect(resolveLanguage('spanish').code).toBe('es')
+    expect(resolveLanguage('Español').code).toBe('es')
+    expect(resolveLanguage('Korean').nativeName).toBe('한국어')
+    expect(resolveLanguage('Klingon').code).toBe('klingon')
+    const keys = es.words.map(w => w.t)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(es.words.length).toBeGreaterThan(400)
+  })
+
+  test('a generated pack is parsed defensively', async () => {
+    const parsed = parseGenerated('Sure! {"words":[{"t":"bonjour","n":"hello"},{"t":"","n":"x"},{"t":"merci","n":"thanks","tier":"tech"},{"t":"bonjour","n":"dup"}],"phrases":[{"t":"Ça va?","n":"How are you?","minLevel":2}],"alphabet":[{"symbol":"r","sound":"throaty"}]}', [])
+    expect(parsed?.words.map(w => w.t)).toEqual(['bonjour', 'merci'])
+    expect(parsed?.words[1]?.tier).toBe('tech')
+    expect(parsed?.phrases[0]?.minLevel).toBe(2)
+    expect(parsed?.alphabet.length).toBe(1)
+    expect(parseGenerated('no json here', [])).toBeUndefined()
+  })
+})

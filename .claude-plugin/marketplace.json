@@ -1,0 +1,13 @@
+{
+  "name": "contextual-language-learning",
+  "owner": {
+    "name": "solepixel"
+  },
+  "description": "ContextLang: learn a language a few words at a time inside Claude Code's replies.",
+  "plugins": [
+    {
+      "name": "contextlang",
+      "source": "./"
+    }
+  ]
+}

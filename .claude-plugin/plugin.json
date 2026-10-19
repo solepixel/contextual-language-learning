@@ -1,0 +1,59 @@
+{
+  "name": "contextlang",
+  "version": "0.1.0",
+  "description": "Teaches you a language over time by weaving a few words, then phrases, then whole sentences of it into Claude's replies. No lessons, no study mode: it just works.",
+  "author": {
+    "name": "solepixel"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "target_language": {
+      "type": "string",
+      "title": "Language to learn",
+      "description": "The language ContextLang weaves into replies, by name (Spanish, French, Japanese, Korean, ...). Spanish ships with a curated word pack; other languages get a pack generated on first use.",
+      "default": "Spanish"
+    },
+    "native_language": {
+      "type": "string",
+      "title": "Your language",
+      "description": "The language you already speak. Replies stay in this language until the target language has earned its way in.",
+      "default": "English"
+    },
+    "age": {
+      "type": "number",
+      "title": "Your age (optional)",
+      "description": "Leave at 0 to skip. Younger and older learners get a gentler density and more repetition, which is what the spacing research supports.",
+      "default": 0
+    },
+    "pace": {
+      "type": "string",
+      "title": "Pace",
+      "description": "How quickly new words arrive and how dense each reply gets. steady follows the research defaults.",
+      "options": ["gentle", "steady", "brisk"],
+      "default": "steady"
+    },
+    "marker_style": {
+      "type": "string",
+      "title": "Marker style",
+      "description": "How a translated word is shown: brackets gives 'questions [preguntas]'; bold gives 'questions **[preguntas]**' so it stands out in the terminal.",
+      "options": ["brackets", "bold"],
+      "default": "brackets"
+    },
+    "show_band": {
+      "type": "boolean",
+      "title": "Show progress band",
+      "description": "Draw a one-line band above the prompt with your level and word count.",
+      "default": false
+    },
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Turn ContextLang off without losing progress. /contextlang pause does the same for one session.",
+      "default": true
+    }
+  },
+  "homepage": "https://github.com/solepixel/contextual-language-learning",
+  "repository": "https://github.com/solepixel/contextual-language-learning",
+  "license": "MIT",
+  "keywords": ["language", "learning", "spanish", "vocabulary", "spaced-repetition", "hooks"]
+}
