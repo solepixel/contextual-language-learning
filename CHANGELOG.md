@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 (2026-10-19)
+- A new stage sits between side by side and bare. Halfway to bare a word flips: the new word comes first, in italics, with your word in the brackets after it, so "yes **[sí]**" becomes "*sí* **[yes]**" before it becomes "*sí*". The flip happens after four of the eight side-by-side encounters at the steady pace; the total before a word goes bare is unchanged. Flipped words have their own line in the turn plan, a rule in the lesson, a toast when they flip, and show as their own group in `/contextlang words` and the status line. Words already met flip at their next encounter if they are past the halfway mark.
+- The script lesson is much slower. A new letter used to arrive every reply; now one arrives only while at most two letters (three at brisk, one at gentle) are still short of their repetitions, so a steady learner meets a letter every four or five replies and sees each one through its spaced reviews before the next. A footer carries at most two letters, reviews first. When no letter is due and there is no room for a new one, the footer is a sound note or a phrase with its reading instead.
+
 ## 0.2.3 (2026-10-19)
 - The lesson now tells Claude to keep drafted text clean: an email, Slack message, GitHub comment, pull request, ticket, commit message or documentation written for you to send as your own gets no woven words and no footer, since those would go out under your name.
 - In the script phase, a word is only woven in once every letter in it has been taught in the footer, so the first words are ones you can sound out (да after А and Д) rather than a whole word in an unfamiliar alphabet. A word met earlier waits until its letters have been shown. Hangul syllables count by their jamo and voiced or small kana by their base kana; kanji wait for the words phase.

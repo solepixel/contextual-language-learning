@@ -1,6 +1,6 @@
 # ContextLang
 
-A [Claude Code](https://code.claude.com) plugin that teaches you a language while you work. The idea behind it: if most of our working day is now a conversation with Claude Code, that conversation can teach us something too. The hours spent prompting are already there, so a little of them can go toward expanding our own human knowledge, a language at a time, at no cost to the work itself. There is no lesson mode and nothing to schedule. Claude keeps answering in your language, and a little of the language you are learning rides along in each reply: one or two words at first, side by side with their meaning, then bare words you have seen enough times, then short phrases, then sentences, until most of the reply is in the new language. Progress is tracked per word on a spaced-repetition schedule and kept between sessions.
+A [Claude Code](https://code.claude.com) plugin that teaches you a language while you work. The idea behind it: if most of our working day is now a conversation with Claude Code, that conversation can teach us something too. The hours spent prompting are already there, so a little of them can go toward expanding our own human knowledge, a language at a time, at no cost to the work itself. There is no lesson mode and nothing to schedule. Claude keeps answering in your language, and a little of the language you are learning rides along in each reply: one or two words at first, side by side with their meaning, then the other way round with the meaning after the word, then bare words you have seen enough times, then short phrases, then sentences, until most of the reply is in the new language. Progress is tracked per word on a spaced-repetition schedule and kept between sessions.
 
 A first-day reply, English to Spanish, looks like this:
 
@@ -16,7 +16,7 @@ A month in, the same kind of reply carries a handful of words you already know w
 ## What you get
 
 - **Words in context, never a quiz.** A side-by-side word is written as your word followed by the new word in brackets, where the meaning naturally occurs. Claude inflects it to fit the sentence. If a planned word would not fit, Claude skips it rather than forcing it.
-- **Words go bare once you know them.** After enough spaced encounters a word is shown on its own, in italics, in place of your word. After enough bare encounters it counts as known and Claude may use it freely. Say "I don't know *ahora*" or ask what a word means and it comes back with its translation.
+- **Words flip, then go bare.** Halfway to bare a word turns round: the new word comes first, in italics, with your word in the brackets after it ("yes **[sí]**" becomes "*sí* **[yes]**"), so you read the new word before its meaning. After enough spaced encounters it is shown on its own, in italics, in place of your word. After enough bare encounters it counts as known and Claude may use it freely. Say "I don't know *ahora*" or ask what a word means and it comes back with its translation.
 - **A footer that teaches sounds and phrases.** The last line of a reply, `ContextLang: ...`, teaches a letter and its sound at the start, then short conversational phrases. It comes every reply at first and every second or third reply later.
 - **Mixing languages is encouraged.** Write any of the new language in your prompt and Claude judges it: a word of praise when it is right, the corrected form when it is not. Correct use counts for more than reading, so your level moves faster when you try.
 - **Only the final reply, and only Claude's own words.** Nothing is woven into progress notes while Claude works, tool calls, commit messages, code, commands, paths, identifiers, or anything you might copy. Nothing goes into text drafted for you to send as your own either: emails, Slack messages, GitHub comments, pull request text, tickets or documentation stay clean, and the footer sits outside the draft.
@@ -91,19 +91,19 @@ Progress is kept per language in the plugin's own store, so switching languages 
 The design follows what the second-language research supports rather than a fixed syllabus.
 
 - **Comprehensible input.** Everything new arrives inside text you already understand, a word or two at a time (Krashen's input hypothesis, the "i+1" idea). The method of replacing single words in a text you can read, and replacing more as you go, is the diglot weave (Burling, 1968).
-- **Encounters, not drills.** Incidental vocabulary studies put learning a word's form and meaning at roughly six to sixteen encounters, with most of the gain by about ten (Nation, 2001; Webb, 2007). A word goes bare after eight side-by-side encounters at the steady pace, and counts as known after five bare ones.
+- **Encounters, not drills.** Incidental vocabulary studies put learning a word's form and meaning at roughly six to sixteen encounters, with most of the gain by about ten (Nation, 2001; Webb, 2007). A word flips after four side-by-side encounters at the steady pace, goes bare after eight, and counts as known after five bare ones.
 - **Spacing.** Each encounter pushes a word's next due time out on an expanding schedule, both in turns (1, 2, 3, 5, 8, 13, 21) and in hours (0, 0, 1, 4, 12, 24, 72), so a long day of prompting cannot burn through a word's schedule in one sitting (Pimsleur, 1967; Cepeda et al., 2006). Bare words stop stretching at eight turns and a day, since they are cheap to show.
 - **Output counts more than input.** Using a word correctly in your own prompt is worth more than reading it, and three correct uses take a word from bare to known (Swain's output hypothesis).
 - **Frequency first.** Words arrive in frequency order, everyday language before anything else; the level is scored against the roughly two thousand word families that cover most everyday text (Nation). Programming vocabulary unlocks at level 25 and specialist computing vocabulary at 50, so technical words wait until they will not get in the way.
-- **Scripts before words.** For Japanese, Korean, Mandarin and Cyrillic languages the first phase teaches the script in the footer, three symbols at a time, and weaves in at most one word per reply, with its reading. The reading drops once most of the script is known.
+- **Scripts before words.** For Japanese, Korean, Mandarin and Cyrillic languages the first phase teaches the script in the footer: one new letter at a time, and only while at most two letters are still short of their repetitions, so the alphabet arrives at the pace the reviews are absorbed. A footer carries at most two letters. At most one word per reply is woven in, with its reading, and only once its letters have been taught. The reading drops once most of the script is known.
 - **Age.** Learning ability stays high until the late teens and declines slowly after (Hartshorne et al., 2018). Younger children and older adults get a lighter density and more encounters per word; the optional date-of-birth setting is a nudge, not a gate.
 
 Phases by level:
 
 | Level | Phase | What a reply looks like |
 | --- | --- | --- |
-| 0 to 5 | sounds | Your language. One or two side-by-side words. A sound in every footer. |
-| 5 to 20 | words | Side-by-side words plus bare ones you know. Greetings may be in the new language. |
+| 0 to 5 | sounds | Your language. One or two side-by-side words, flipped once half known. A sound in every footer. |
+| 5 to 20 | words | Side-by-side and flipped words plus bare ones you know. Greetings may be in the new language. |
 | 20 to 45 | phrases | One short sentence or clause in the new language per reply, with its meaning. |
 | 45 to 70 | sentences | A quarter to a half of plain sentences in the new language; no translation when every word is known. |
 | 70 to 90 | immersion | About three sentences in four. Technical explanation may fall back to your language. |
@@ -120,7 +120,7 @@ The plugin is a Claude Code hooks module (`hooks/register.tsx`) over a pure engi
 | `session.start` | Loads this language's progress and pack from the store, registers `/contextlang` and the report tool, and generates a pack if the language has none. |
 | `prompt.compose` | Appends one section to the system prompt: the rules of the weave, the current phase's guidance, and the words you already know. It is rebuilt only when your level crosses a five-point bucket, so the prompt cache holds across a session. |
 | `prompt.submit` | Attaches a hidden note beside your prompt: the words to weave in this reply, the footer text, and anything you wrote in the new language. Per-turn variation lives here, not in the system prompt. |
-| `turn.complete` | Reads the final reply, credits every planned word it carried (brackets for side by side, a plain or italic match for bare, the `ContextLang:` line for the footer), advances their schedules, and saves. Code blocks are ignored. |
+| `turn.complete` | Reads the final reply, credits every planned word it carried (brackets for side by side, the word before a bracket for flipped, a plain or italic match for bare, the `ContextLang:` line for the footer), advances their schedules, and saves. Code blocks are ignored. |
 | `tool.call` on `mcp__contextlang__report` | Claude calls this when you wrote the new language or said you did not know a word: correct use is credited, mistakes pull a word back, forgotten words return to side by side. |
 | `command.run` on `contextlang` | The command above. |
 | `ui.render` on `AbovePrompt` | The optional band. |

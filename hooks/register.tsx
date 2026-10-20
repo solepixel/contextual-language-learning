@@ -264,6 +264,7 @@ export const register: Register = (on, options) => {
     const credit = creditAnswer(ctx.progress, plan, e.answer, settings, now)
     delete ctx.progress.lastPlan
     await save($, ctx)
+    if (credit.flipped.length > 0) $.ui.toast(`ContextLang: ${credit.flipped.join(', ')} now comes first, with the meaning after it.`)
     if (credit.promoted.length > 0) $.ui.toast(`ContextLang: ${credit.promoted.join(', ')} now appears without translation. Say "I don't know <word>" to bring it back.`)
     if (credit.learned.length > 0) $.ui.toast(`ContextLang: ${credit.learned.join(', ')} ${credit.learned.length === 1 ? 'is' : 'are'} now known.`)
     const met = new Set(Object.keys(ctx.progress.words))

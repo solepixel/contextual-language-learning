@@ -8,6 +8,9 @@ import {
   creditAnswer,
   detectForgotten,
   detectUsed,
+  flippedLeads,
+  formatFlipped,
+  knowWord,
   lessonSection,
   makePlan,
   matchesForm,
@@ -34,6 +37,11 @@ import { packSource } from '../hooks/packs/source'
 
 const S: Settings = readSettings({})
 const HOUR = 3600_000
+
+/** A reply that carries every planned word the way the plan asks: side by side, flipped, or bare. */
+function carry(plan: ReturnType<typeof makePlan>): string {
+  return [...plan.annotate.map(w => `${w.n} [${w.t}]`), ...plan.flip.map(w => `*${w.t}* [${w.n}]`), ...plan.bare.map(w => `_${w.t}_`)].join(', ')
+}
 
 describe('settings and tuning', () => {
   test('defaults fill in and bad values fall back', async () => {
@@ -92,13 +100,13 @@ describe('planning', () => {
     const p = newProgress('es', 0)
     for (let i = 0; i < 40; i += 1) {
       const plan = makePlan(p, es, S, i * HOUR * 24)
-      creditAnswer(p, plan, plan.annotate.map(w => `${w.n} [${w.t}]`).join(' ') + '\n\nContextLang: x', S, i * HOUR * 24)
+      creditAnswer(p, plan, carry(plan) + '\n\nContextLang: x', S, i * HOUR * 24)
     }
     expect(Object.keys(p.words).some(t => es.words.find(w => w.t === t)?.tier === 'tech')).toBe(false)
     p.levelOverride = 30
     for (let i = 40; i < 80; i += 1) {
       const plan = makePlan(p, es, S, i * HOUR * 24)
-      creditAnswer(p, plan, plan.annotate.map(w => `${w.n} [${w.t}]`).join(' '), S, i * HOUR * 24)
+      creditAnswer(p, plan, carry(plan), S, i * HOUR * 24)
     }
     expect(Object.keys(p.words).some(t => es.words.find(w => w.t === t)?.tier === 'tech')).toBe(true)
   })
@@ -112,17 +120,21 @@ describe('planning', () => {
 })
 
 describe('crediting the reply', () => {
-  test('marked words are credited, code is ignored, and words are promoted after enough spaced exposures', async () => {
+  test('marked words are credited, code is ignored, and words flip and then go bare after enough spaced exposures', async () => {
     const p = newProgress('es', 0)
     const tune = tuning(S)
     let now = 0
+    let flippedAt = -1
     let promotedAt = -1
+    let seenFlipped = false
     for (let i = 0; i < 60; i += 1) {
       now += 6 * HOUR
       const plan = makePlan(p, es, S, now)
-      const reply = plan.annotate.map(w => `${w.n} [${w.t}]`).join(', ') + '\n```js\nconst x = "[gracias]"\n```\n' + (plan.footer ? `\nContextLang: ${plan.footer.text}` : '')
+      if (plan.flip.some(w => w.t === 'sí')) seenFlipped = true
+      const reply = carry(plan) + '\n```js\nconst x = "[gracias]"\n```\n' + (plan.footer ? `\nContextLang: ${plan.footer.text}` : '')
       const credit = creditAnswer(p, plan, reply, S, now)
-      expect(credit.annotated).toEqual(plan.annotate.map(w => w.t))
+      expect(credit.annotated).toEqual([...plan.annotate, ...plan.flip].map(w => w.t))
+      if (credit.flipped.includes('sí') && flippedAt < 0) flippedAt = i
       if (credit.promoted.includes('sí') && promotedAt < 0) promotedAt = i
     }
     const si = p.words['sí']
@@ -130,7 +142,36 @@ describe('crediting the reply', () => {
     expect(si?.stage === 'bare' || si?.stage === 'known').toBe(true)
     expect(si?.seen).toBeGreaterThanOrEqual(tune.promoteAfter)
     expect(promotedAt).toBeGreaterThan(tune.promoteAfter - 2)
+    // The flip comes halfway, and the word is then planned flipped (not side by side) until it goes bare.
+    expect(flippedAt).toBeGreaterThanOrEqual(tune.flipAfter - 1)
+    expect(flippedAt).toBeLessThan(promotedAt)
+    expect(seenFlipped).toBe(true)
     expect(p.turns).toBe(60)
+  })
+
+  test('a flipped word is credited when written word first, and only then', async () => {
+    const p = newProgress('es', 0)
+    const tune = tuning(S)
+    p.words['sí'] = { t: 'sí', n: 'yes', stage: 'flipped', box: 2, seen: tune.flipAfter, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    const plan = makePlan(p, es, S, 0)
+    expect(plan.flip.map(w => w.t)).toContain('sí')
+    expect(plan.annotate.map(w => w.t)).not.toContain('sí')
+    const credit = creditAnswer(p, plan, 'Then *sí* **[yes]**, and we move on.', S, 0)
+    expect(credit.annotated).toContain('sí')
+    expect(p.words['sí']?.seen).toBe(tune.flipAfter + 1)
+    expect(p.words['sí']?.stage).toBe('flipped')
+    // A side-by-side word is not read as the lead of the bracket after it.
+    expect(flippedLeads('yes **[sí]** and hello **[hola]**')).toEqual(['yes', 'and hello', 'hello'])
+    expect(flippedLeads('*sí* **[yes]**\nhello [hola]')).toEqual(['sí', 'hello'])
+    expect(flippedLeads('see [the docs](https://x) and *por favor* [please]')).toEqual(['and por favor', 'por favor', 'favor'])
+    expect(formatFlipped('да', 'yes', S, 'da')).toBe('*да* **[yes, da]**')
+  })
+
+  test('saying you know a flipped word takes it straight to bare', async () => {
+    const p = newProgress('es', 0)
+    p.words['sí'] = { t: 'sí', n: 'yes', stage: 'flipped', box: 2, seen: 4, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    knowWord(p.words['sí']!, 1, 0)
+    expect(p.words['sí']?.stage).toBe('bare')
   })
 
   test('a word is not due again in the same hour once it is past its first boxes', async () => {
@@ -238,7 +279,8 @@ describe('level and prompt text', () => {
     const { pack } = basePack(resolveLanguage('Russian'))
     const p = newProgress('ru', 0)
     const wordsSeen: string[] = []
-    for (let i = 0; i < 20; i++) {
+    // Letters arrive every few replies now, so it takes a couple of months of daily replies to reach Д.
+    for (let i = 0; i < 60; i++) {
       const now = i * HOUR * 24
       const plan = makePlan(p, pack, S, now)
       const met = metScriptLetters(p, pack)!
@@ -246,9 +288,9 @@ describe('level and prompt text', () => {
         expect(readableWith(w.t, met, 'cyrillic')).toBe(true)
         if (!wordsSeen.includes(w.t)) wordsSeen.push(w.t)
       }
-      creditAnswer(p, plan, plan.annotate.map(w => `${w.n} [${w.t}]`).join(' ') + '\n\nContextLang: ' + plan.footer!.text, S, now)
+      creditAnswer(p, plan, carry(plan) + '\n\nContextLang: ' + plan.footer!.text, S, now)
     }
-    // The very first reply has no letters yet, so no word; "да" needs only А and Д and comes early.
+    // The very first reply has no letters yet, so no word; "да" needs only А and Д and comes once Д has.
     expect(wordsSeen.length).toBeGreaterThan(0)
     expect(wordsSeen).toContain('да')
     expect(wordsSeen).not.toContain('привет')
@@ -268,24 +310,37 @@ describe('level and prompt text', () => {
     expect(readableWith('да!', new Set(['д', 'а', 'Д', 'А']), 'cyrillic')).toBe(true)
   })
 
-  test('the script lesson introduces one new letter at a time, with reviews in short form', async () => {
+  test('the script lesson introduces one new letter at a time, only while few are still being learned', async () => {
     const { pack } = basePack(resolveLanguage('Russian'))
     const p = newProgress('ru', 0)
+    const tune = tuning(S)
     const seenNew: string[] = []
-    for (let i = 0; i < 12; i++) {
+    let scriptFooters = 0
+    for (let i = 0; i < 60; i++) {
       const now = i * HOUR * 24
+      const inFlight = Object.values(p.script).filter(st => st.seen > 0 && st.seen < tune.scriptReps).length
       const plan = makePlan(p, pack, S, now)
-      expect(plan.footer?.kind).toBe('script')
-      const keys = plan.footer!.key.split('|')
+      if (plan.footer?.kind !== 'script') {
+        // Nothing due and no room for a new letter: the footer is a sound note or a phrase with its reading, never empty.
+        expect(plan.footer?.kind === 'alphabet' || plan.footer?.kind === 'phrase').toBe(true)
+        creditAnswer(p, plan, 'ok\n\nContextLang: ' + plan.footer!.text, S, now)
+        continue
+      }
+      scriptFooters += 1
+      const keys = plan.footer.key.split('|')
       const fresh = keys.filter(k => !seenNew.includes(k))
       expect(fresh.length).toBeLessThanOrEqual(1)
-      expect(keys.length).toBeLessThanOrEqual(3)
+      expect(keys.length).toBeLessThanOrEqual(2)
+      if (fresh.length > 0) expect(inFlight).toBeLessThan(tune.scriptInFlight)
       // Only the new letter carries its example word; a letter back for review is just the sound.
-      expect((plan.footer!.text.match(/", as in /g) ?? []).length).toBe(fresh.length)
+      expect((plan.footer.text.match(/", as in /g) ?? []).length).toBe(fresh.length)
       seenNew.push(...fresh)
-      creditAnswer(p, plan, 'ok\n\nContextLang: ' + plan.footer!.text, S, now)
+      creditAnswer(p, plan, 'ok\n\nContextLang: ' + plan.footer.text, S, now)
     }
-    expect(seenNew.length).toBeGreaterThanOrEqual(10)
+    // Sixty daily replies at the steady pace: roughly a letter every four or five replies, not one per reply.
+    expect(seenNew.length).toBeGreaterThanOrEqual(8)
+    expect(seenNew.length).toBeLessThanOrEqual(16)
+    expect(scriptFooters).toBeGreaterThan(30)
     expect(seenNew[0]).toBe('А а')
   })
 
@@ -309,6 +364,15 @@ describe('level and prompt text', () => {
     expect(bold).toContain('**[sí]**')
     expect(turnNote(plan, es, { ...S, marker: 'italic' }, [], [])).toContain('*[sí]*')
     expect(turnNote(plan, es, { ...S, marker: 'code' }, [], [])).toContain('`[sí]`')
+    // A flipped word is spelled out the other way round, and is not offered as a free bare word.
+    expect(lesson).toContain('*preguntas* **[questions]**')
+    p.words['hola'] = { t: 'hola', n: 'hello', stage: 'flipped', box: 2, seen: 4, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    p.words['gracias'] = { t: 'gracias', n: 'thanks', stage: 'bare', box: 2, seen: 8, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    const later = lessonSection(es, p, S, computeLevel(p, es, S))
+    expect(later).toContain('Use any of these bare, whenever their meaning comes up: gracias.')
+    const plan2 = makePlan(p, es, S, 0)
+    expect(turnNote(plan2, es, S, [], [])).toContain('Flipped (the Spanish word in italics, then the English word in square brackets, the whole bracket in bold), where the meaning naturally occurs: hello → *hola* **[hello]**')
+    expect(statusText(es, p, S, computeLevel(p, es, S), 0)).toContain('1 flipped')
   })
 })
 

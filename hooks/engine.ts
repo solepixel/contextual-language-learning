@@ -131,7 +131,12 @@ export function ageAt(birthDate: string, now: number = Date.now()): number {
  * promoteAfter: side-by-side exposures before a word goes bare. Incidental
  * vocabulary studies put form-meaning learning at roughly 6 to 16 encounters
  * (Nation 2001; Webb 2007 found most gains by ~10), so steady uses 8.
+ * flipAfter: side-by-side exposures before the order flips, the target word
+ * first and its meaning after it; the second half of the way to bare.
  * bareAfter: bare exposures before a word counts as known.
+ * scriptInFlight: how many letters may be mid-way through their reps at once;
+ * a new letter only arrives when there is room, so the alphabet comes at the
+ * pace the reviews are absorbed, not one stranger per reply.
  * Age: Hartshorne et al. (2018) find learning ability high until the late
  * teens; younger children and older adults benefit from lower density and
  * more repetition, so both get more encounters per word and fewer per reply.
@@ -152,18 +157,22 @@ export function tuning(s: Settings, now: number = Date.now()) {
     ageReps = 1.25
   }
   const density = pace * ageDensity
+  const promoteAfter = Math.max(4, Math.round((8 * ageReps) / Math.sqrt(pace)))
   return {
     density,
-    promoteAfter: Math.max(4, Math.round((8 * ageReps) / Math.sqrt(pace))),
+    promoteAfter,
+    flipAfter: Math.max(2, Math.ceil(promoteAfter / 2)),
     bareAfter: Math.max(3, Math.round(5 * ageReps)),
     itemReps: Math.max(2, Math.round(3 * ageReps)),
     scriptReps: Math.max(3, Math.round(4 * ageReps)),
+    scriptInFlight: s.pace === 'brisk' ? 3 : s.pace === 'gentle' ? 1 : 2,
   }
 }
 
 // ---------------------------------------------------------------- progress
 
-export type Stage = 'annotated' | 'bare' | 'known'
+/** annotated: native word, then the target word in brackets. flipped: the target word, then the native word in brackets. bare: the target word alone. */
+export type Stage = 'annotated' | 'flipped' | 'bare' | 'known'
 
 export type WordState = {
   t: string
@@ -194,6 +203,7 @@ export type Plan = {
   turn: number
   level: number
   annotate: PlanWord[]
+  flip: PlanWord[]
   bare: PlanWord[]
   footer?: Footer
 }
@@ -289,7 +299,7 @@ export type LevelInfo = {
   phrasePoints: number
   alphabetMastery: number
   scriptMastery: number
-  counts: { annotated: number; bare: number; known: number; met: number; inPack: number; phrasesSeen: number; alphabetDone: number; alphabetTotal: number; scriptDone: number; scriptTotal: number }
+  counts: { annotated: number; flipped: number; bare: number; known: number; met: number; inPack: number; phrasesSeen: number; alphabetDone: number; alphabetTotal: number; scriptDone: number; scriptTotal: number }
 }
 
 /** How much of a word is learned, 0..1: side-by-side exposures count least, bare more, correct use most (Swain's output hypothesis). */
@@ -341,6 +351,7 @@ export function computeLevel(p: Progress, pack: Pack, s: Settings, now: number =
     scriptMastery,
     counts: {
       annotated: words.filter(w => w.stage === 'annotated').length,
+      flipped: words.filter(w => w.stage === 'flipped').length,
       bare: words.filter(w => w.stage === 'bare').length,
       known: words.filter(w => w.stage === 'known').length,
       met: words.length,
@@ -360,7 +371,7 @@ export function tierMinLevel(tier: Tier | undefined): number {
   return tier === 'deep' ? 50 : tier === 'tech' ? 25 : 0
 }
 
-/** Side-by-side words per reply: one or two at the start, eight by the immersion phase. */
+/** Side-by-side words per reply, flipped ones included: one or two at the start, eight by the immersion phase. */
 function annotatedPerReply(level: number, density: number, phase: Phase): number {
   if (phase === 'script') return 1
   return Math.max(1, Math.min(8, Math.round((2 + level / 12) * density)))
@@ -370,7 +381,7 @@ function barePerReply(level: number, density: number): number {
   return Math.max(2, Math.min(15, Math.round((2 + level / 5) * density)))
 }
 
-/** How many words may sit in the side-by-side stage at once; what one review slot per reply can keep fed. */
+/** How many words may sit in the side-by-side and flipped stages at once; what one review slot per reply can keep fed. */
 function activeCap(level: number, density: number): number {
   return Math.max(4, Math.min(40, Math.round((8 + level / 3) * density)))
 }
@@ -468,7 +479,8 @@ export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Pla
   }
 
   const states = Object.values(p.words)
-  const annotated = states.filter(w => w.stage === 'annotated')
+  // Flipped words share the side-by-side slots: same schedule, the other way round on the page.
+  const annotated = states.filter(w => w.stage === 'annotated' || w.stage === 'flipped')
   const bareWords = states.filter(w => w.stage === 'bare')
 
   // 1. Side-by-side words: reviews that are due (most fragile first), and a new word on its own cadence
@@ -506,7 +518,13 @@ export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Pla
   let footer: Footer | undefined
   if (wantsFooter(turn, level, info.phase, s.pace)) footer = pickFooter(p, pack, s, info, turn, now)
 
-  const plan: Plan = { turn, level, annotate: annotate.map(planWord), bare: bare.map(planWord) }
+  const plan: Plan = {
+    turn,
+    level,
+    annotate: annotate.filter(w => w.stage !== 'flipped').map(planWord),
+    flip: annotate.filter(w => w.stage === 'flipped').map(planWord),
+    bare: bare.map(planWord),
+  }
   if (footer) plan.footer = footer
   p.lastPlan = plan
   return plan
@@ -520,12 +538,20 @@ function pickFooter(p: Progress, pack: Pack, s: Settings, info: LevelInfo, turn:
       const st = p.script[a.symbol]
       return !st || (st.seen < tune.scriptReps && isDue(st, turn, now))
     })
-    // One new letter per reply, always: three strangers at once is too much for a beginner.
-    // Letters coming back for review ride along in short form, so the footer stays brief and
-    // the repeats are what make a longer footer feel familiar rather than heavy.
-    const fresh = due.filter(a => !p.script[a.symbol]).slice(0, 1)
-    const review = due.filter(a => p.script[a.symbol]).slice(0, info.phase === 'script' ? 2 : 1)
-    const batch = (info.phase === 'script' ? [...review, ...fresh] : [...review, ...fresh].slice(0, 1))
+    // A new letter only while few are still being learned (seen, but short of their reps), one at a
+    // time, and a footer carries at most two letters: the reviews that are due, least seen first,
+    // and a fresh letter when there is room. Letters coming back for review ride along in short form.
+    // When nothing is due and there is no room the footer falls through to a sound note or a phrase.
+    const inFlight = scriptItems.filter(a => {
+      const n = p.script[a.symbol]?.seen ?? 0
+      return n > 0 && n < tune.scriptReps
+    }).length
+    const fresh = inFlight < tune.scriptInFlight ? due.filter(a => !p.script[a.symbol]).slice(0, 1) : []
+    const review = due
+      .filter(a => p.script[a.symbol])
+      .sort((x, y) => (p.script[x.symbol]?.seen ?? 0) - (p.script[y.symbol]?.seen ?? 0))
+      .slice(0, (info.phase === 'script' ? 2 : 1) - fresh.length)
+    const batch = [...review, ...fresh]
     if (batch.length > 0) {
       const describe = (a: AlphabetItem) => {
         const full = !p.script[a.symbol] && a.example
@@ -649,6 +675,26 @@ export function bracketed(text: string): string[] {
   return out
 }
 
+/**
+ * The words just before each bracket, as a flipped word is written: the target word, then its
+ * meaning in brackets. Up to three words back, every suffix, so a two-word entry still matches;
+ * never past the previous bracket or line, so a side-by-side word is not read as the lead of the next.
+ */
+export function flippedLeads(text: string): string[] {
+  const out: string[] = []
+  const re = /\[([^\[\]\n]{1,60})\]/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (text[m.index + m[0].length] === '(') continue
+    let before = text.slice(0, m.index)
+    const cut = Math.max(before.lastIndexOf(']'), before.lastIndexOf('\n'))
+    if (cut >= 0) before = before.slice(cut + 1)
+    const words = before.split(/\s+/).map(norm).filter(Boolean).slice(-3)
+    for (let i = 0; i < words.length; i++) out.push(words.slice(i).join(' '))
+  }
+  return out
+}
+
 export function containsBare(text: string, form: string): boolean {
   const f = norm(form)
   if (!f) return false
@@ -659,18 +705,19 @@ export function containsBare(text: string, form: string): boolean {
 
 export const FOOTER_RE = /(^|\n)\s*(?:\*\*|_|\*)?ContextLang(?:\*\*|_|\*)?\s*:/
 
-export type Credit = { annotated: string[]; bare: string[]; footer: boolean; promoted: string[]; learned: string[] }
+export type Credit = { annotated: string[]; bare: string[]; footer: boolean; flipped: string[]; promoted: string[]; learned: string[] }
 
 /** Read the final reply against the plan and advance every word it carried. Mutates `p`. */
 export function creditAnswer(p: Progress, plan: Plan | undefined, answer: string, s: Settings, now: number): Credit {
   const tune = tuning(s, now)
-  const credit: Credit = { annotated: [], bare: [], footer: false, promoted: [], learned: [] }
+  const credit: Credit = { annotated: [], bare: [], footer: false, flipped: [], promoted: [], learned: [] }
   const turn = plan?.turn ?? p.turns + 1
   p.turns = Math.max(p.turns, turn)
   const text = stripCode(answer)
   if (!text.trim()) return credit
 
   const marks = bracketed(stripFenced(answer))
+  const leads = flippedLeads(stripFenced(answer))
   const seen = new Set<string>()
   const creditAnnotated = (w: WordState) => {
     if (seen.has(w.t)) return
@@ -679,19 +726,26 @@ export function creditAnswer(p: Progress, plan: Plan | undefined, answer: string
     w.box = boxed(w.box + 1)
     schedule(w, turn, now)
     credit.annotated.push(w.t)
-    if (w.stage === 'annotated' && w.seen >= tune.promoteAfter && w.box >= 4) {
+    // Halfway to bare the order flips: the word first, its meaning after it. Nothing else changes.
+    if (w.stage === 'annotated' && w.seen >= tune.flipAfter) {
+      w.stage = 'flipped'
+      credit.flipped.push(w.t)
+    }
+    if (w.stage === 'flipped' && w.seen >= tune.promoteAfter && w.box >= 4) {
       w.stage = 'bare'
       w.box = 2
       schedule(w, turn, now)
       credit.promoted.push(w.t)
     }
   }
-  // Any active word the reply marked counts, planned or not; bare and known ones marked again are fine too.
-  const planned = (plan?.annotate ?? []).map(x => p.words[x.t]).filter((w): w is WordState => w !== undefined)
+  // Any active word the reply marked counts, planned or not, in either order; bare and known ones marked again are fine too.
+  const plannedWords = [...(plan?.annotate ?? []), ...(plan?.flip ?? [])]
+  const planned = plannedWords.map(x => p.words[x.t]).filter((w): w is WordState => w !== undefined)
   const others = Object.values(p.words).filter(w => !planned.includes(w))
   for (const w of [...planned, ...others]) {
-    const entryReading = plan?.annotate.find(x => x.t === w.t)?.reading
-    if (marks.some(m => matchesForm(m, w.t) || (entryReading !== undefined && matchesForm(m, entryReading)))) creditAnnotated(w)
+    const entryReading = plannedWords.find(x => x.t === w.t)?.reading
+    const isForm = (m: string) => matchesForm(m, w.t) || (entryReading !== undefined && matchesForm(m, entryReading))
+    if (marks.some(isForm) || leads.some(isForm)) creditAnnotated(w)
   }
   for (const pw of plan?.bare ?? []) {
     const w = p.words[pw.t]
@@ -800,7 +854,7 @@ export function resetWord(w: WordState, turn: number, now: number): void {
 
 /** The learner says they know it: straight to bare. */
 export function knowWord(w: WordState, turn: number, now: number): void {
-  if (w.stage === 'annotated') {
+  if (w.stage === 'annotated' || w.stage === 'flipped') {
     w.stage = 'bare'
     w.seen = Math.max(w.seen, 6)
   } else if (w.stage === 'bare') {
@@ -856,6 +910,13 @@ export function formatAnnotated(native: string, target: string, s: Settings, rea
   return `${native} ${wrap}[${inner}]${wrap}`
 }
 
+/** The flipped form: the target word in italics, then its meaning in the bracket, with the reading after the meaning while the script is new. */
+export function formatFlipped(target: string, native: string, s: Settings, reading?: string): string {
+  const inner = reading ? `${native}, ${reading}` : native
+  const wrap = MARKER_WRAP[s.marker]
+  return `*${target}* ${wrap}[${inner}]${wrap}`
+}
+
 const MARKER_WRAP: Record<MarkerStyle, string> = { brackets: '', bold: '**', italic: '*', code: '`' }
 
 /** How the lesson describes the marker, so the model writes it the way the setting asks. */
@@ -894,9 +955,12 @@ function phaseGuidance(phase: Phase, pack: Pack, native: string): string {
 /** The stable part of the lesson, composed once per session so the prompt cache holds. */
 export function lessonSection(pack: Pack, p: Progress, s: Settings, info: LevelInfo): string {
   const native = s.native
-  const sample = formatAnnotated('questions', pack.code === 'es' ? 'preguntas' : pack.words[0]?.t ?? 'word', s, pack.script !== 'latin' ? pack.words[0]?.reading : undefined)
+  const sampleTarget = pack.code === 'es' ? 'preguntas' : pack.words[0]?.t ?? 'word'
+  const sampleReading = pack.script !== 'latin' ? pack.words[0]?.reading : undefined
+  const sample = formatAnnotated('questions', sampleTarget, s, sampleReading)
+  const flippedSample = formatFlipped(sampleTarget, 'questions', s, sampleReading)
   const free = Object.values(p.words)
-    .filter(w => w.stage !== 'annotated')
+    .filter(w => w.stage === 'bare' || w.stage === 'known')
     .sort((a, b) => a.introducedTurn - b.introducedTurn)
   const freeList = free.slice(0, 300).map(w => w.t).join(', ')
   const freeMore = free.length > 300 ? ` and ${free.length - 300} more the learner has met` : ''
@@ -910,6 +974,7 @@ export function lessonSection(pack: Pack, p: Progress, s: Settings, info: LevelI
     ``,
     `## How`,
     `- A side-by-side word is written as the ${native} word followed by the ${pack.name} word ${markerRule(s)}: "${sample}". Inflect the ${pack.name} word to fit (plural, gender, verb form). Put it where the ${native} word naturally occurs; if a planned word would not fit the reply, skip it rather than force it.`,
+    `- A flipped word is one the person has met side by side a few times, so it is written the other way round: the ${pack.name} word in italics, then the ${native} word ${markerRule(s)}: "${flippedSample}". It goes where the ${native} word would go, inflected the same way.`,
     `- A bare word is written in ${pack.name} alone, in italics, in place of its ${native} word: it is one the person has seen enough times. Use bare words wherever their meaning comes up.`,
     `- ${phaseGuidance(info.phase, pack, native)}`,
     `- When the turn plan gives a footer, end the reply with one line that starts with "ContextLang:" followed by the footer text, verbatim. No footer line otherwise.`,
@@ -934,6 +999,13 @@ export function turnNote(plan: Plan, pack: Pack, s: Settings, used: string[], fo
     })
     lines.push(`Side by side (${s.native} word, then the ${pack.name} word ${markerRule(s)}), where the meaning naturally occurs: ${items.join('; ')}.`)
   }
+  if (plan.flip.length > 0) {
+    const items = plan.flip.map(w => {
+      const note = w.note ? ` (${w.note})` : ''
+      return `${w.n} → ${formatFlipped(w.t, w.n, s, w.reading)}${note}`
+    })
+    lines.push(`Flipped (the ${pack.name} word in italics, then the ${s.native} word ${markerRule(s)}), where the meaning naturally occurs: ${items.join('; ')}.`)
+  }
   if (plan.bare.length > 0) lines.push(`Bare, in italics, no translation: ${plan.bare.map(w => `${w.t} (${w.n})`).join(', ')}.`)
   if (plan.footer) lines.push(`Footer, as the last line of the reply, verbatim: ContextLang: ${plan.footer.text}`)
   if (used.length > 0) lines.push(`The person's message contains ${pack.name} (${used.join(', ')}): judge it, call mcp__contextlang__report, and react in one sentence.`)
@@ -957,7 +1029,7 @@ export function statusText(pack: Pack, p: Progress, s: Settings, info: LevelInfo
   const birth = s.birthDate ? `${s.birthDate} (age ${age})` : s.birthDateRaw ? `"${s.birthDateRaw}" is not readable, use YYYY-MM-DD` : 'not set'
   const packSource = source ? (source.isShipped ? 'shipped pack' : source.known ? 'generated pack' : `not a known language${source.suggestion ? `, did you mean ${source.suggestion}?` : ''}`) : ''
   const due = Object.values(p.words)
-    .filter(w => w.stage === 'annotated' && isDue(w, turn, now))
+    .filter(w => (w.stage === 'annotated' || w.stage === 'flipped') && isDue(w, turn, now))
     .sort((a, b) => a.box - b.box)
     .slice(0, 8)
     .map(w => `${w.t} (${w.n})`)
@@ -966,7 +1038,7 @@ export function statusText(pack: Pack, p: Progress, s: Settings, info: LevelInfo
     `Level **${info.level.toFixed(2)}** / 100 · phase: ${info.phase} · pace: ${s.pace}${age > 0 ? ` · age ${age}` : ''}`,
     `\`${progressBar(info.level)}\``,
     ``,
-    `Words: ${c.annotated} side by side · ${c.bare} bare · ${c.known} known · ${c.met} met of ${c.inPack} in the pack`,
+    `Words: ${c.annotated} side by side · ${c.flipped} flipped · ${c.bare} bare · ${c.known} known · ${c.met} met of ${c.inPack} in the pack`,
     `Phrases seen: ${c.phrasesSeen} · Sounds: ${c.alphabetDone}/${c.alphabetTotal}${c.scriptTotal > 0 ? ` · Script: ${c.scriptDone}/${c.scriptTotal}` : ''}`,
     `Turns: ${p.turns} · Sessions: ${p.sessions} · Started: ${new Date(p.createdAt).toISOString().slice(0, 10)}`,
     ``,
@@ -983,9 +1055,11 @@ export function wordsText(p: Progress): string {
   const group = (stage: Stage) => all.filter(w => w.stage === stage).map(w => `${w.t} (${w.n}, ×${w.seen + w.bareSeen}${w.produced ? `, used ${w.produced}` : ''})`)
   const lines: string[] = []
   const a = group('annotated')
+  const f = group('flipped')
   const b = group('bare')
   const k = group('known')
   if (a.length) lines.push(`**Side by side (${a.length})**: ${a.join(', ')}`)
+  if (f.length) lines.push(`**Flipped, meaning after the word (${f.length})**: ${f.join(', ')}`)
   if (b.length) lines.push(`**Bare (${b.length})**: ${b.join(', ')}`)
   if (k.length) lines.push(`**Known (${k.length})**: ${k.join(', ')}`)
   return lines.join('\n\n')
