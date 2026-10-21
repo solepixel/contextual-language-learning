@@ -19,6 +19,7 @@ import {
   resetWord,
   settingsWarnings,
   statusText,
+  toastTimeout,
   turnNote,
   wordsText,
 } from './engine'
@@ -97,6 +98,9 @@ async function loadPack($: EngineInterface, ctx: Ctx): Promise<void> {
   if (stored) ctx.pack = mergePack(ctx.basePack, stored)
 }
 
+/** The default 4 s is too short to read; the stay scales with the text. */
+const toast = ($: EngineInterface, text: string): void => $.ui.toast(text, { timeoutMs: toastTimeout(text) })
+
 const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n))
 
 /** One model call for the next batch of words; the result lands in the store and the working pack. */
@@ -122,7 +126,7 @@ async function extendPack($: EngineInterface, ctx: Ctx, reason: string): Promise
     const preferred = ctx.settings.packModel.trim() && ctx.settings.packModel.trim() !== 'session' ? ctx.settings.packModel.trim() : sessionModel
     $.ui.status(`ContextLang: building the ${ctx.pack.name} word pack with ${preferred} (about ${tokens(est.input + est.output)} tokens)`)
     if (reason === 'first use') {
-      $.ui.toast(
+      toast($, 
         `ContextLang: no ${ctx.pack.name} pack ships for ${ctx.settings.native} speakers, so one is being generated with ${preferred}: about ${tokens(est.input + est.output)} tokens now, and a similar call each time your level unlocks more words (a few over the coming weeks). The model is the "pack model" row in /config; /contextlang export turns the result into a pack you can contribute.`,
       )
     }
@@ -130,12 +134,12 @@ async function extendPack($: EngineInterface, ctx: Ctx, reason: string): Promise
     let reply = await ask(preferred)
     if (!reply.isAnswered && preferred !== sessionModel) reply = await ask(sessionModel)
     if (!reply.isAnswered) {
-      $.ui.toast(`ContextLang could not build the ${ctx.pack.name} pack (${reply.reason}); it will try again later.`)
+      toast($, `ContextLang could not build the ${ctx.pack.name} pack (${reply.reason}); it will try again later.`)
       return false
     }
     const parsed = parseGenerated(reply.text, haveWords)
     if (!parsed) {
-      $.ui.toast(`ContextLang got an unreadable ${ctx.pack.name} pack from the model; it will try again later.`)
+      toast($, `ContextLang got an unreadable ${ctx.pack.name} pack from the model; it will try again later.`)
       return false
     }
     const merged: Generated = {
@@ -146,7 +150,7 @@ async function extendPack($: EngineInterface, ctx: Ctx, reason: string): Promise
     await $.store.set(ctx.packKey, merged)
     ctx.pack = mergePack(ctx.basePack, merged)
     refreshLesson(ctx, true)
-    $.ui.toast(`ContextLang: ${parsed.words.length} ${ctx.pack.name} words ready (${reason}).`)
+    toast($, `ContextLang: ${parsed.words.length} ${ctx.pack.name} words ready (${reason}).`)
     return true
   } finally {
     ctx.isGenerating = false
@@ -223,7 +227,7 @@ export const register: Register = (on, options) => {
     const warned = ctx.isKnown || Boolean(await $.store.get(warnedKey))
     for (const w of settingsWarnings(settings, { known: ctx.isKnown, suggestion: ctx.suggestion })) {
       if (w.includes('not a language') && warned) continue
-      $.ui.toast(w)
+      toast($, w)
     }
     if (!ctx.isKnown && !warned) await $.store.set(warnedKey, true)
     if (ctx.pack.words.length === 0 && settings.enabled && warned) await extendPack($, ctx, 'first use')
@@ -264,9 +268,9 @@ export const register: Register = (on, options) => {
     const credit = creditAnswer(ctx.progress, plan, e.answer, settings, now)
     delete ctx.progress.lastPlan
     await save($, ctx)
-    if (credit.flipped.length > 0) $.ui.toast(`ContextLang: ${credit.flipped.join(', ')} now comes first, with the meaning after it.`)
-    if (credit.promoted.length > 0) $.ui.toast(`ContextLang: ${credit.promoted.join(', ')} now appears without translation. Say "I don't know <word>" to bring it back.`)
-    if (credit.learned.length > 0) $.ui.toast(`ContextLang: ${credit.learned.join(', ')} ${credit.learned.length === 1 ? 'is' : 'are'} now known.`)
+    if (credit.flipped.length > 0) toast($, `ContextLang: ${credit.flipped.join(', ')} now comes first, with the meaning after it.`)
+    if (credit.promoted.length > 0) toast($, `ContextLang: ${credit.promoted.join(', ')} now appears without translation. Say "I don't know <word>" to bring it back.`)
+    if (credit.learned.length > 0) toast($, `ContextLang: ${credit.learned.join(', ')} ${credit.learned.length === 1 ? 'is' : 'are'} now known.`)
     const met = new Set(Object.keys(ctx.progress.words))
     if (needsMoreWords(ctx.pack, met, info(ctx).level)) $.clock.after(50, () => void extendPack($, ctx, 'more words unlocked'))
     return next(e)

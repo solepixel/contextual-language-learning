@@ -1023,6 +1023,13 @@ export function turnNote(plan: Plan, pack: Pack, s: Settings, used: string[], fo
   return lines.join('\n')
 }
 
+// ---------------------------------------------------------------- toasts
+
+/** How long a toast stays, in milliseconds: about 50 ms a character, held between 8 and 20 seconds. */
+export function toastTimeout(text: string): number {
+  return Math.min(20_000, Math.max(8000, text.length * 50))
+}
+
 // ---------------------------------------------------------------- status
 
 export function progressBar(level: number, width = 20): string {

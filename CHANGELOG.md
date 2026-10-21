@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.6 (2026-10-21)
+- Toasts stay long enough to read. The engine default is four seconds; ContextLang now holds a toast for about fifty milliseconds a character, at least eight seconds and at most twenty, so the flip and bare-word notices sit around ten seconds. Hovering still holds one and a click still dismisses it.
+
 ## 0.2.5 (2026-10-20)
 - Words advance far more slowly. Only spaced encounters count now: a word shown again before its gap has elapsed is a reminder and earns nothing, where before every marked word counted and a busy day could run a word through its whole schedule. The gaps are longer (the second look eight hours on, then a day, two, three, five, a week) and the thresholds higher: at the steady pace a word flips after eight counted encounters instead of four and goes bare after fourteen instead of eight; known needs eight bare encounters instead of five. In practice the first flip comes after about four weeks and the first bare word after about ten. A word that flipped under the old threshold goes back to side by side until it earns the flip.
 - More words may sit in rotation at once (sixteen at level 0, growing with the level), so new words keep arriving while the older ones wait out their spacing.

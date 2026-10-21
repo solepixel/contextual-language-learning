@@ -25,6 +25,7 @@ import {
   statusText,
   styleExample,
   styleTarget,
+  toastTimeout,
   tuning,
   turnNote,
 } from '../hooks/engine'
@@ -388,6 +389,14 @@ describe('level and prompt text', () => {
     const plan2 = makePlan(p, es, S, 0)
     expect(turnNote(plan2, es, S, [], [])).toContain('Flipped (the Spanish word in italics, then the English word in square brackets, the whole bracket in bold), where the meaning naturally occurs: hello → *hola* **[hello]**')
     expect(statusText(es, p, S, computeLevel(p, es, S), 0)).toContain('1 flipped')
+  })
+})
+
+describe('toasts', () => {
+  test('a toast stays long enough to read: eight seconds at least, twenty at most, scaling with the text', () => {
+    expect(toastTimeout('ContextLang: hola now comes first.')).toBe(8000)
+    expect(toastTimeout('x'.repeat(240))).toBe(12_000)
+    expect(toastTimeout('x'.repeat(1000))).toBe(20_000)
   })
 })
 
