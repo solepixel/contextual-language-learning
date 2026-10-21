@@ -130,9 +130,12 @@ export function ageAt(birthDate: string, now: number = Date.now()): number {
  * age is worked out from the birth date each time so it never goes stale).
  * promoteAfter: side-by-side exposures before a word goes bare. Incidental
  * vocabulary studies put form-meaning learning at roughly 6 to 16 encounters
- * (Nation 2001; Webb 2007 found most gains by ~10), so steady uses 8.
+ * (Nation 2001; Webb 2007 found most gains by ~10). Steady uses 14, the top
+ * of that range: an encounter here is a glance at a translated word inside a
+ * reply about something else, not a study session, and only spaced
+ * encounters count, so this is weeks of use rather than a day of it.
  * flipAfter: side-by-side exposures before the order flips, the target word
- * first and its meaning after it; the second half of the way to bare.
+ * first and its meaning after it; the last part of the way to bare.
  * bareAfter: bare exposures before a word counts as known.
  * scriptInFlight: how many letters may be mid-way through their reps at once;
  * a new letter only arrives when there is room, so the alphabet comes at the
@@ -157,12 +160,12 @@ export function tuning(s: Settings, now: number = Date.now()) {
     ageReps = 1.25
   }
   const density = pace * ageDensity
-  const promoteAfter = Math.max(4, Math.round((8 * ageReps) / Math.sqrt(pace)))
+  const promoteAfter = Math.max(6, Math.round((14 * ageReps) / Math.sqrt(pace)))
   return {
     density,
     promoteAfter,
-    flipAfter: Math.max(2, Math.ceil(promoteAfter / 2)),
-    bareAfter: Math.max(3, Math.round(5 * ageReps)),
+    flipAfter: Math.max(4, Math.round(promoteAfter * 0.6)),
+    bareAfter: Math.max(5, Math.round(8 * ageReps)),
     itemReps: Math.max(2, Math.round(3 * ageReps)),
     scriptReps: Math.max(3, Math.round(4 * ageReps)),
     scriptInFlight: s.pace === 'brisk' ? 3 : s.pace === 'gentle' ? 1 : 2,
@@ -261,11 +264,13 @@ export function mergePack(pack: Pack, extra: { words: WordEntry[]; phrases: Phra
 /**
  * Expanding intervals, in turns and in hours, after each successful
  * encounter (Pimsleur 1967's graduated-interval recall; Cepeda et al. 2006
- * on spacing). A word is due when both have elapsed, so a heavy day of use
- * cannot burn through a word's schedule in one sitting.
+ * on spacing). A word is due when both have elapsed, and an encounter before
+ * then counts for nothing, so a heavy day of use cannot burn through a word's
+ * schedule in one sitting: the second look comes the same day at the
+ * earliest, the third a day later, then every few days, then weekly.
  */
 const INTERVAL_TURNS = [1, 2, 3, 5, 8, 13, 21] as const
-const INTERVAL_HOURS = [0, 0, 1, 4, 12, 24, 72] as const
+const INTERVAL_HOURS = [0, 8, 24, 48, 72, 120, 168] as const
 const HOUR = 3600_000
 
 function boxed(box: number): number {
@@ -381,9 +386,9 @@ function barePerReply(level: number, density: number): number {
   return Math.max(2, Math.min(15, Math.round((2 + level / 5) * density)))
 }
 
-/** How many words may sit in the side-by-side and flipped stages at once; what one review slot per reply can keep fed. */
+/** How many words may sit in the side-by-side and flipped stages at once. Words take weeks to go bare, so this is what keeps new ones arriving meanwhile. */
 function activeCap(level: number, density: number): number {
-  return Math.max(4, Math.min(40, Math.round((8 + level / 3) * density)))
+  return Math.max(8, Math.min(48, Math.round((16 + level) * density)))
 }
 
 function wantsFooter(turn: number, level: number, phase: Phase, pace: Pace): boolean {
@@ -479,6 +484,8 @@ export function makePlan(p: Progress, pack: Pack, s: Settings, now: number): Pla
   }
 
   const states = Object.values(p.words)
+  // A word that flipped under an earlier, lower threshold goes back to side by side until it earns the flip.
+  for (const w of states) if (w.stage === 'flipped' && w.seen < tune.flipAfter) w.stage = 'annotated'
   // Flipped words share the side-by-side slots: same schedule, the other way round on the page.
   const annotated = states.filter(w => w.stage === 'annotated' || w.stage === 'flipped')
   const bareWords = states.filter(w => w.stage === 'bare')
@@ -722,6 +729,9 @@ export function creditAnswer(p: Progress, plan: Plan | undefined, answer: string
   const creditAnnotated = (w: WordState) => {
     if (seen.has(w.t)) return
     seen.add(w.t)
+    // Shown before its spacing has elapsed (a reply with nothing due still carries a word), it is a
+    // reminder, not a repetition: it counts for nothing, so a busy day cannot run a word through its schedule.
+    if (!isDue(w, turn, now)) return
     w.seen += 1
     w.box = boxed(w.box + 1)
     schedule(w, turn, now)
@@ -754,7 +764,7 @@ export function creditAnswer(p: Progress, plan: Plan | undefined, answer: string
       seen.add(w.t)
       w.bareSeen += 1
       w.box = boxed(w.box + 1)
-      // Bare words are cheap to show, so their gaps stop growing at 16 turns / a day.
+      // Bare words are cheap to show, so their gaps stop growing at 8 turns / three days.
       schedule({ ...w, box: Math.min(w.box, 4) }, turn, now, w)
       credit.bare.push(w.t)
       if (w.stage === 'bare' && w.bareSeen >= tune.bareAfter) {

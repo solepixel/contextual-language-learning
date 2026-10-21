@@ -127,13 +127,14 @@ describe('crediting the reply', () => {
     let flippedAt = -1
     let promotedAt = -1
     let seenFlipped = false
-    for (let i = 0; i < 60; i += 1) {
-      now += 6 * HOUR
+    for (let i = 0; i < 300; i += 1) {
+      now += 24 * HOUR
       const plan = makePlan(p, es, S, now)
       if (plan.flip.some(w => w.t === 'sí')) seenFlipped = true
       const reply = carry(plan) + '\n```js\nconst x = "[gracias]"\n```\n' + (plan.footer ? `\nContextLang: ${plan.footer.text}` : '')
       const credit = creditAnswer(p, plan, reply, S, now)
-      expect(credit.annotated).toEqual([...plan.annotate, ...plan.flip].map(w => w.t))
+      const planned = [...plan.annotate, ...plan.flip].map(w => w.t)
+      for (const t of credit.annotated) expect(planned).toContain(t)
       if (credit.flipped.includes('sí') && flippedAt < 0) flippedAt = i
       if (credit.promoted.includes('sí') && promotedAt < 0) promotedAt = i
     }
@@ -141,12 +142,25 @@ describe('crediting the reply', () => {
     expect(si).toBeDefined()
     expect(si?.stage === 'bare' || si?.stage === 'known').toBe(true)
     expect(si?.seen).toBeGreaterThanOrEqual(tune.promoteAfter)
-    expect(promotedAt).toBeGreaterThan(tune.promoteAfter - 2)
-    // The flip comes halfway, and the word is then planned flipped (not side by side) until it goes bare.
-    expect(flippedAt).toBeGreaterThanOrEqual(tune.flipAfter - 1)
+    // Spaced encounters only: at a reply a day the first word flips after some weeks and goes bare months in.
+    expect(flippedAt).toBeGreaterThan(30)
     expect(flippedAt).toBeLessThan(promotedAt)
+    expect(promotedAt).toBeGreaterThan(100)
     expect(seenFlipped).toBe(true)
-    expect(p.turns).toBe(60)
+    expect(p.turns).toBe(300)
+  })
+
+  test('an encounter before the spacing has elapsed is shown but not counted', async () => {
+    const p = newProgress('es', 0)
+    const plan1 = makePlan(p, es, S, 0)
+    creditAnswer(p, plan1, 'yes [sí]', S, 0)
+    const w = p.words['sí']!
+    expect(w.seen).toBe(1)
+    // Same hour, ten turns on, marked in every reply: it earns nothing until its spacing has elapsed.
+    for (let turn = 2; turn <= 10; turn++) creditAnswer(p, makePlan(p, es, S, 0), 'yes [sí]', S, 0)
+    expect(w.seen).toBe(1)
+    creditAnswer(p, makePlan(p, es, S, 9 * HOUR), 'yes [sí]', S, 9 * HOUR)
+    expect(w.seen).toBe(2)
   })
 
   test('a flipped word is credited when written word first, and only then', async () => {
@@ -174,15 +188,16 @@ describe('crediting the reply', () => {
     expect(p.words['sí']?.stage).toBe('bare')
   })
 
-  test('a word is not due again in the same hour once it is past its first boxes', async () => {
+  test('a word is not due again the same day once it is past its first box', async () => {
     const p = newProgress('es', 0)
     const plan1 = makePlan(p, es, S, 0)
     creditAnswer(p, plan1, 'yes [sí]', S, 0)
     const w = p.words['sí']
     expect(w?.dueTurn).toBe(3)
+    expect(w?.dueAt).toBe(8 * HOUR)
     w!.box = 3
-    creditAnswer(p, { ...plan1, turn: 2 }, 'yes [sí]', S, 0)
-    expect(w?.dueAt).toBeGreaterThan(0)
+    creditAnswer(p, { ...plan1, turn: 3 }, 'yes [sí]', S, 8 * HOUR)
+    expect(w?.dueAt).toBe(80 * HOUR)
   })
 
   test('bare words are credited when they appear plainly, and become known', async () => {
@@ -366,7 +381,7 @@ describe('level and prompt text', () => {
     expect(turnNote(plan, es, { ...S, marker: 'code' }, [], [])).toContain('`[sí]`')
     // A flipped word is spelled out the other way round, and is not offered as a free bare word.
     expect(lesson).toContain('*preguntas* **[questions]**')
-    p.words['hola'] = { t: 'hola', n: 'hello', stage: 'flipped', box: 2, seen: 4, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
+    p.words['hola'] = { t: 'hola', n: 'hello', stage: 'flipped', box: 2, seen: tuning(S).flipAfter, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
     p.words['gracias'] = { t: 'gracias', n: 'thanks', stage: 'bare', box: 2, seen: 8, bareSeen: 0, produced: 0, misses: 0, dueTurn: 0, dueAt: 0, introducedTurn: 1 }
     const later = lessonSection(es, p, S, computeLevel(p, es, S))
     expect(later).toContain('Use any of these bare, whenever their meaning comes up: gracias.')
